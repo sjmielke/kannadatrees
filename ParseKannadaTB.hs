@@ -1,3 +1,5 @@
+module ParseKannadaTB where
+
 import Text.HTML.TagSoup
 import Data.Foldable (foldl')
 import Data.List (intercalate)
@@ -8,38 +10,11 @@ import Control.Monad.State.Lazy
 import Debug.Trace
 import Control.Exception.Base (assert)
 
--- | These data structures contain the information encoded in the input file
--- (including the chunking and feature-set pseudo-tag)
--- The only new synthesized annotations here are the IDs of words
--- (which are now global per sentence instead of relative per chunk).
-type KannadaSentence = [KannadaChunk]
-data KannadaChunk = KannadaChunk
-    { getChunkTag::String
-    , getChunkFS::ChunkFeatureSet
-    , getWords::[KannadaWord]
-    }
-    deriving (Eq, Show)
-data KannadaWord = KannadaWord
-    { getId::Int
-    , getWord::String
-    , getFullTag::String
-    , getWordFS::WordFeatureSet
-    }
-    deriving (Eq, Show)
-data ChunkFeatureSet = ChunkFeatureSet
-    { getAddress::String -- originally called name
-    , getDRel::String
-    } -- af is partially present, but always empty
-    deriving (Eq, Show)
-data WordFeatureSet = WordFeatureSet
-    { getLemma::String
-    , getCoarseTag::String
-    , removeme::String
-    , getFeatures::[String]
-    } -- omit "name", redundant to word itself
-    deriving (Eq, Show)
+import KannadaTB
+import CoNLLOutput
 
-main = do
+getKannadaTB :: IO KannadaTreebank
+getKannadaTB = do
     --let treebankPath = "treebank_small.xml"
     let treebankPath = "TREE 1-4150 (3.8 (1).15 CORRECTED)"
     dirtyTreebankFile <- readFile treebankPath
@@ -71,7 +46,14 @@ main = do
     -- These contain shit beyond all hope. What the actual fuck.
     let clusterfuckFreeSentencesTags = filter (not . (`elem` ["423", "427", "457"]) . fst) allSentencesTags
     
-    print $ foldl' (+) 0 $ map (length . show . parseSentence) clusterfuckFreeSentencesTags
+    -- print $ foldl' (+) 0 $ map (length . show . parseSentence) clusterfuckFreeSentencesTags
+    
+    -- The first five sentences don't fail basic assertions. Let's just work with them for now.
+    let fineSentenceParses = map parseSentence $ take 5 $ clusterfuckFreeSentencesTags
+    
+    print $ fineSentenceParses
+    
+    return fineSentenceParses
 
 -- Possible future assertions:
 -- * only one empty drel per sentence
@@ -81,10 +63,10 @@ main = do
 parseSentence
   :: (String, [Tag String]) -- ^ (id of sentence, tags)
   -> KannadaSentence
-parseSentence (id, tags) = trace ("--< " ++ show id ++ " >--")
-                         $ reverse
-                         $ map (\c -> c{getWords = reverse $ getWords c})
-                         $ evalState (chunkReader [] tags) 1
+parseSentence (i, tags) = trace ("\n\n--< " ++ show i ++ " >--\n\n")
+                        $ reverse
+                        $ map (\c -> c{getWords = reverse $ getWords c})
+                        $ evalState (chunkReader [] tags) 1
   where
     chunkReader :: [KannadaChunk] -> [Tag String] -> State Int [KannadaChunk]
     chunkReader chunks (TagText text : TagOpen "fs" attrs : ws)
@@ -99,19 +81,23 @@ parseSentence (id, tags) = trace ("--< " ++ show id ++ " >--")
                 -> updateChunk (head chunks) word fullTag
                     >>= return . (:(tail chunks))
               -- Seriously, what the hell. This is usually because some chunks don't have a fs tag. TODO.
-              ws -> trace ("Failing at a line with " ++ show (length ws) ++ " words: " ++ unwords ws) $ return (junkChunk : chunks)
-                        where junkChunk = KannadaChunk "JUNK" (ChunkFeatureSet "JUNK" "") []
+              ws -> error {-trace-} ("Failing at a line with " ++ show (length ws) ++ " words: " ++ unwords ws)
+              --    $ return (junkChunk : chunks)
+              --          where junkChunk = KannadaChunk "JUNK" (ChunkFeatureSet "JUNK" "") []
            chunkReader chunks' ws
         where
           makeChunk :: String -> State Int KannadaChunk
           makeChunk chunkTag
             = fsMemberCheckChunk
             $ return (KannadaChunk chunkTag fs [])
-              where fs = ChunkFeatureSet (fromJust $ lookup "name" attrs)
-                                         (fromMaybe "" (lookup "drel" attrs))
+              where
+                address = fromJust $ lookup "name" attrs
+                [drelname, drelhead] = splitOn ":"
+                                     $ fromMaybe "ROOT:" (lookup "drel" attrs)
+                fs = ChunkFeatureSet address drelname drelhead
           updateChunk :: KannadaChunk -> String -> String -> State Int KannadaChunk
           updateChunk chunk word fullTag
-            = trace "word" $ fsMemberCheckWord
+            = fsMemberCheckWord
             $ do id <- get
                  put (id + 1)
                  return $ chunk{getWords = words' id}
@@ -120,8 +106,7 @@ parseSentence (id, tags) = trace ("--< " ++ show id ++ " >--")
                 fs = fsFrom
                    $ splitOn ","
                    $ lookup' "af" attrs
-                fsFrom (l:c:r:f) = if (not $ null r) then trace ("gender: " ++ r) $ WordFeatureSet l c r f
-                                       else WordFeatureSet l c r f
+                fsFrom (l:c:f) = WordFeatureSet l c f
           
           -- Sanity Checks
           fsMemberCheckChunk = flip (foldr ($))
@@ -135,11 +120,11 @@ parseSentence (id, tags) = trace ("--< " ++ show id ++ " >--")
             , assert $ attrOnlyNullMay "troot"
             , assert $ attrOnlyNullMay "mtype"
             ] -- name should be there, too, but we don't need it
-          attrContains key = if not $ lookup key attrs == Nothing then True else trace "ooooooooooooooooooooooooooooh" (key == "af")
+          attrContains key = not $ lookup key attrs == Nothing
           attrEqualsIfExists key val = case lookup key attrs of
             Nothing -> True
             Just v -> v == val
-          attrAtMost keys = traceShow attrs $ all (\a -> (fst a) `elem` keys) attrs
+          attrAtMost keys = all (\a -> (fst a) `elem` keys) attrs
           attrOnlyNullMay key = case lookup key attrs of
                                   Just v -> trace (key ++ ": " ++ v) $ (take 1 $ drop 1 $ words text) == ["NULL"]
                                   Nothing -> True
@@ -151,3 +136,7 @@ parseSentence (id, tags) = trace ("--< " ++ show id ++ " >--")
       = case lookup key assocs of
           Just val -> val
           Nothing -> trace ("Could not find key " ++ key ++ " in a <fs> tag!") ",,,,,,,"
+
+main = do
+    parsedSentences <- getKannadaTB
+    writeCoNLLTreebankTo "kannada.conll" $ transformKannadaTBToCoNLL parsedSentences
