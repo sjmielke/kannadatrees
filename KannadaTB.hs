@@ -50,7 +50,10 @@ transformKannadaTBToCoNLL :: KannadaTreebank -> CoNLLTreebank
 transformKannadaTBToCoNLL ss = map transformSentence ss
 
 transformSentence :: KannadaSentence -> CoNLLSentence
-transformSentence chunks = filterNull 0 $ concatMap transformChunk chunks
+transformSentence chunks
+  = uncurry shiftAddressesBack -- since filterNull has left some "holes"
+  $ filterNull []
+  $ concatMap transformChunk chunks
   where
     -- Basic assumption here: all words of a chunk are siblings
     -- sharing the same dependency to one head!
@@ -76,8 +79,23 @@ transformSentence chunks = filterNull 0 $ concatMap transformChunk chunks
                         $ find ((== a) . getAddress . getChunkFS)
                         $ chunks
     
-    filterNull :: Int -> [CoNLLWord] -> [CoNLLWord]
-    filterNull _ [] = []
-    filterNull offset (cword : ws)
-      | getForm cword == "NULL" = filterNull (offset + 1) ws
-      | otherwise = cword{getId = (getId cword) - offset} : filterNull offset ws
+    filterNull
+      :: [Int] -- ^ word ids of NULL in old list
+      -> [CoNLLWord] -- ^ old word list
+      -> ([Int], [CoNLLWord]) -- ^ clean word list
+    filterNull nulls [] = (nulls, [])
+    filterNull nulls (cword@CoNLLWord{getId = oldid} : ws)
+      | getForm cword == "NULL" = filterNull (oldid : nulls) ws
+      | otherwise = let (indices, cleanRest) = filterNull nulls ws
+                    in ( indices
+                       , cword{getId = oldid - length nulls} : cleanRest
+                       )
+    
+    shiftAddressesBack
+      :: [Int] -- ^ word ids of NULL in old list
+      -> [CoNLLWord] -- ^ word list with new indices but old drel addresses
+      -> [CoNLLWord] -- ^ finally clean wordlist
+    shiftAddressesBack nulls = map correct
+      where
+        correct cword@CoNLLWord{getHead = oldhead}
+          = cword{getHead = oldhead - length (dropWhile (>oldhead) nulls)}

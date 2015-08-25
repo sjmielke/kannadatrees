@@ -6,6 +6,7 @@ module CoNLLOutput
 ) where
 
 import Data.List
+import Data.Hashable
 
 type CoNLLTreebank = [CoNLLSentence]
 type CoNLLSentence = [CoNLLWord]
@@ -32,12 +33,14 @@ stringifyCoNLLWord (CoNLLWord i fr l c p fe h d ph pd)
     encodeEmpty "" = "_"
     encodeEmpty s = s
     -- This is what we would do in a perfect world.
-    -- glyphs = id
+    glyphs = id
     -- This is what we might do because in 2015 there are still people
     -- who cannot deal with strange unicode letters.
     -- glyphs = init . tail . show
-    -- This is what we actually do to obtain the least painful workaround.
-    glyphs _ = 'W' : show i
+    -- This is most readable in the tree viewer, but doesn't make any sense for parsing.
+    -- glyphs _ = 'W' : show i
+    -- So highly ambiguous hashes it is.
+    -- glyphs w = show $ hash w `mod` 1000000 -- I would like to have them short and readable.
 
 stringifyCoNLLSentence :: CoNLLSentence -> String
 stringifyCoNLLSentence ws = unlines $ map stringifyCoNLLWord ws

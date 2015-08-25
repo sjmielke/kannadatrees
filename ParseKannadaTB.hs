@@ -16,7 +16,7 @@ import CoNLLOutput
 getKannadaTB :: IO KannadaTreebank
 getKannadaTB = do
     --let treebankPath = "treebank_small.xml"
-    let treebankPath = "TREE 1-4150 (3.8 (1).15 CORRECTED)"
+    let treebankPath = "../data/TREE 1-4150 (3.8 (1).15 CORRECTED)"
     dirtyTreebankFile <- readFile treebankPath
     
     -- This whole file is a dirty desaster on pretty much every level.
@@ -43,27 +43,32 @@ getKannadaTB = do
                          $ splitWhen (~== TagClose "Sentence")
                          $ cleanTaglist
     
-    -- These contain shit beyond all hope. What the actual fuck.
-    let clusterfuckFreeSentencesTags = filter (not . (`elem` ["423", "427", "457"]) . fst) allSentencesTags
     
-    -- print $ foldl' (+) 0 $ map (length . show . parseSentence) clusterfuckFreeSentencesTags
+    let clusterfuckFreeSentencesTags = takeWhile (\(i,_) -> i /= "513")
+                                     -- This first filter is more restrictive, since right now I don't want even light clusterfucks.
+                                     $ filter (not . (`elem` ["6", "23", "183", "186", "263", "266", "366", "413", "503"]) . fst)
+                                     -- All A-sentences Are Bastards.
+                                     $ filter ((/='A') . last . fst)
+                                     -- These contain shit beyond all hope. What the actual fuck.
+                                     $ filter (not . (`elem` ["423", "427", "457"]) . fst)
+                                     $ allSentencesTags
     
-    -- The first five sentences don't fail basic assertions. Let's just work with them for now.
-    let fineSentenceParses = map parseSentence $ take 5 $ clusterfuckFreeSentencesTags
+    -- print $ length clusterfuckFreeSentencesTags
     
-    print $ fineSentenceParses
+    -- The first 504 sentences that don't fail basic assertions. Let's just work with them for now.
+    let fineSentenceParses = map parseSentence $ clusterfuckFreeSentencesTags
     
     return fineSentenceParses
 
 -- Possible future assertions:
 -- * only one empty drel per sentence
+-- * drels have to be valid
 -- * what the hell is troot and mtype?
--- * is gender really gender?
 
 parseSentence
   :: (String, [Tag String]) -- ^ (id of sentence, tags)
   -> KannadaSentence
-parseSentence (i, tags) = trace ("\n\n--< " ++ show i ++ " >--\n\n")
+parseSentence (i, tags) = id -- trace ("\n\n--< " ++ show i ++ " >--\n\n")
                         $ reverse
                         $ map (\c -> c{getWords = reverse $ getWords c})
                         $ evalState (chunkReader [] tags) 1
@@ -110,7 +115,7 @@ parseSentence (i, tags) = trace ("\n\n--< " ++ show i ++ " >--\n\n")
           
           -- Sanity Checks
           fsMemberCheckChunk = flip (foldr ($))
-            [ assert $ attrContains "name"
+            [ assert $ attrContains "name" -- CAUTION: this does not check if these links are valid!
             , assert $ attrEqualsIfExists "af" ",,,,,,,"
             , assert $ attrAtMost ["name", "af", "drel"]
             ]
@@ -126,7 +131,8 @@ parseSentence (i, tags) = trace ("\n\n--< " ++ show i ++ " >--\n\n")
             Just v -> v == val
           attrAtMost keys = all (\a -> (fst a) `elem` keys) attrs
           attrOnlyNullMay key = case lookup key attrs of
-                                  Just v -> trace (key ++ ": " ++ v) $ (take 1 $ drop 1 $ words text) == ["NULL"]
+                                  Just v -> id -- trace (key ++ ": " ++ v)
+                                          $ (take 1 $ drop 1 $ words text) == ["NULL"]
                                   Nothing -> True
     chunkReader chunks [TagText "\n\t))\n"] -- end of final chunk
       = return chunks
@@ -135,8 +141,14 @@ parseSentence (i, tags) = trace ("\n\n--< " ++ show i ++ " >--\n\n")
     lookup' key assocs
       = case lookup key assocs of
           Just val -> val
-          Nothing -> trace ("Could not find key " ++ key ++ " in a <fs> tag!") ",,,,,,,"
+          Nothing -> error ("Could not find key " ++ key ++ " in a <fs> tag!")
 
 main = do
     parsedSentences <- getKannadaTB
-    writeCoNLLTreebankTo "kannada.conll" $ transformKannadaTBToCoNLL parsedSentences
+    let coNLLTB = transformKannadaTBToCoNLL parsedSentences
+        splitPoint = (*19) $ length coNLLTB `div` 20
+    
+    -- writeCoNLLTreebankTo "../data/kannada_train.conll" coNLLTB
+    -- writeCoNLLTreebankTo "../data/kannada_test.conll" coNLLTB
+    writeCoNLLTreebankTo "../data/kannada_train.conll" $ take splitPoint coNLLTB
+    writeCoNLLTreebankTo "../data/kannada_test.conll" $ drop splitPoint coNLLTB
