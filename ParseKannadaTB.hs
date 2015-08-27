@@ -45,6 +45,8 @@ getKannadaTB = do
     
     
     let clusterfuckFreeSentencesTags = takeWhile (\(i,_) -> i /= "513")
+                                     -- Invalid Addresses:
+                                     $ filter (not . (`elem` ["95"]) . fst)
                                      -- This first filter is more restrictive, since right now I don't want even light clusterfucks.
                                      $ filter (not . (`elem` ["6", "23", "183", "186", "263", "266", "366", "413", "503"]) . fst)
                                      -- All A-sentences Are Bastards.
@@ -55,7 +57,7 @@ getKannadaTB = do
     
     -- print $ length clusterfuckFreeSentencesTags
     
-    -- The first 504 sentences that don't fail basic assertions. Let's just work with them for now.
+    -- The first roughly 500 sentences that don't fail basic assertions. Let's just work with them for now.
     let fineSentenceParses = map parseSentence $ clusterfuckFreeSentencesTags
     
     return fineSentenceParses
@@ -146,9 +148,4 @@ parseSentence (i, tags) = id -- trace ("\n\n--< " ++ show i ++ " >--\n\n")
 main = do
     parsedSentences <- getKannadaTB
     let coNLLTB = transformKannadaTBToCoNLL parsedSentences
-        splitPoint = (*19) $ length coNLLTB `div` 20
-    
-    -- writeCoNLLTreebankTo "../data/kannada_train.conll" coNLLTB
-    -- writeCoNLLTreebankTo "../data/kannada_test.conll" coNLLTB
-    writeCoNLLTreebankTo "../data/kannada_train.conll" $ take splitPoint coNLLTB
-    writeCoNLLTreebankTo "../data/kannada_test.conll" $ drop splitPoint coNLLTB
+    generateTrainAndTestFiles Nothing "../data/Kannada" coNLLTB
