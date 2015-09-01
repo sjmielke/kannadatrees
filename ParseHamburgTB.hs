@@ -10,7 +10,7 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 import CoNLLOutput
 
 main = do
-    files <- fmap (take 30000 . drop 2) $ getDirectoryContents hamburgTBPath -- skip "." and ".."
+    files <- fmap (take 3000 . drop 2) $ getDirectoryContents hamburgTBPath -- skip "." and ".."
     -- ^ This file list is literally the only thing that is continuously
     -- occupying memory during the program.
     coNLLTB <- sequence_lazy $ map fileCruncher files

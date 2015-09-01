@@ -15,14 +15,17 @@ do
 			;;
 		train)
 			cd ../data
-			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_train.conll -m learn
+			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_train.conll -m learn -a $TRAINALGO
 			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_test.conll -o out.conll -m parse
 			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_test.conll -s out.conll -v 0
 			cd ../code
 			;;
 		treeview)
 			cd ../malteval-src/ant/bin
-			# Replacing the content of the inner for loop starting at se/vxu/msi/malteval/treeviewer/MaltTreeViewGui:275 with:
+			# If you have the same problem as me ("ClassCastException" when
+			# using unicode letters in the TreeViewer), replace the content
+			# of the inner for loop starting at
+			# se/vxu/msi/malteval/treeviewer/MaltTreeViewGui:275 with:
 			# 
 			# boolean isok = true;
 			# try {
@@ -38,5 +41,7 @@ do
 			java se.vxu.msi.malteval.MaltEvalConsole -g ../../../data/$1_test.conll -s ../../../data/out.conll -v 1
 			cd ../../../code
 			;;
+		*)
+			TRAINALGO=$arg
 	esac
 done
