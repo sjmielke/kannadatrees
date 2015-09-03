@@ -8,6 +8,8 @@ module KannadaTB
 , WordFeatureSet (..)
 -- transformations
 , transformKannadaTBToCoNLL
+-- helpers
+, findIdForAddress
 ) where
 
 import Data.Char (isLatin1)
@@ -22,23 +24,23 @@ import CoNLLOutput
 -- (including the chunking and feature-set pseudo-tag)
 -- The only new synthesized annotations here are the IDs of words
 -- (which are now global per sentence instead of relative per chunk).
-type KannadaTreebank = [KannadaSentence]
+type KannadaTreebank = [(String, KannadaSentence)] -- ^ a sentence and its (string) id
 type KannadaSentence = [KannadaChunk]
-data KannadaChunk = KannadaChunk
+data KannadaChunk = KannadaChunk -- ASSUMPTION: no nested chunking
     { getChunkTag :: String
-    , getChunkFS :: ChunkFeatureSet
+    , getChunkFS :: ChunkFeatureSet -- implied with no attributes, if non-existent
     , getWords :: [KannadaWord]
     }
     deriving (Eq, Show)
 data KannadaWord = KannadaWord
-    { getWordId :: Int -- global inside the sentence
+    { getWordId :: Int -- global inside the sentence, computed by parser
     , getWord :: String
     , getFullTag :: String
-    , getWordFS :: WordFeatureSet
+    , getWordFS :: WordFeatureSet -- implied with no attributes, if non-existent
     }
     deriving (Eq, Show)
 data ChunkFeatureSet = ChunkFeatureSet
-    { getAddress :: String -- originally called name
+    { getAddress :: Maybe String -- originally called name
     , getDRel :: String
     , getDRelHead :: String -- if empty, getDRel == ROOT
     } -- af is partially present, but always empty
@@ -46,16 +48,17 @@ data ChunkFeatureSet = ChunkFeatureSet
 data WordFeatureSet = WordFeatureSet
     { getLemma :: String
     , getCoarseTag :: String
-    , getFeatures :: [String]
+    , getAFeatures :: [String]
     } -- omit "name", redundant to word itself
     deriving (Eq, Show)
 
 transformKannadaTBToCoNLL :: KannadaTreebank -> CoNLLTreebank
 transformKannadaTBToCoNLL ss = map transformSentence ss
 
-transformSentence :: KannadaSentence -> CoNLLSentence
-transformSentence chunks
-  = uncurry shiftAddressesBack -- since filterNull has left some "holes"
+transformSentence :: (String, KannadaSentence) -> (Maybe String, CoNLLSentence)
+transformSentence (sid, chunks)
+  = (,) (Just sid)
+  $ uncurry shiftAddressesBack -- since filterNull has left some "holes"
   $ filterNull []
   $ concatMap transformChunk
   $ chunks
@@ -63,34 +66,24 @@ transformSentence chunks
     -- Basic assumption here: all words of a chunk are siblings
     -- sharing the same dependency to one head!
     transformChunk (KannadaChunk tag chunkfs ws)
-      | take 4 tag == "NULL" = assert (length ws == 1)
-                             $ [transformWord (head ws){getWord = tag}]
-      | otherwise = map transformWord ws
+      = map (transformWord tag) ws
       where
-        transformWord (KannadaWord i form fulltag (WordFeatureSet lemma coarsetag fs))
+        transformWord chunkTag
+                      (KannadaWord i form fulltag
+                                   (WordFeatureSet lemma coarsetag fs))
           = CoNLLWord i
-                      (glyphs form)
-                      (glyphs lemma)
+                      (enrichNULL form)
+                      (enrichNULL lemma)
                       coarsetag
                       fulltag
                       (intercalate "|" $ filter (not . null) fs)
-                      (findIdForAddress $ getDRelHead chunkfs)
+                      (fromJust . findIdForAddress chunks $ getDRelHead chunkfs)
                       (getDRel chunkfs)
                       ""
                       ""
-    
-    -- If one the other side a chunk is the head of a dependency
-    -- the *leftmost* word will play that role.
-    findIdForAddress :: String -> Int
-    findIdForAddress "" = 0
-    -- Caution: instead of pointing to a "NULL" node, we point to the ROOT instead.
-    findIdForAddress a =
-      if False && take 4 (getChunkTag targetChunk) == "NULL" -- just starts with "NULL"
-        then 0
-        else getWordId $ head {- <- leftmost -} $ getWords $ targetChunk
-      where targetChunk = fromJust
-                        $ find ((== a) . getAddress . getChunkFS)
-                        $ chunks
+            where
+              enrichNULL "NULL" = chunkTag
+              enrichNULL s = s
     
     filterNull
       :: [Int] -- ^ word ids of NULL in old list
@@ -113,13 +106,15 @@ transformSentence chunks
         correct cword@CoNLLWord{getHead = oldhead}
           = cword{getHead = oldhead - length (dropWhile (>oldhead) nulls)}
 
-glyphs :: String -> String
-glyphs w = if all isLatin1 w then w else wrap w
-  where
-    -- This is what we would do in a perfect world:
-    wrap = id
-    -- This is what we might do because in 2015 there are still people
-    -- who cannot deal with strange unicode letters, so printing them number-coded:
-    -- wrap = init . tail . show
-    -- So highly ambiguous hashes it is:
-    -- wrap w = show $ hash w `mod` 1000000 -- I would like to have them short and readable.
+-- If a chunk is the head of a dependency
+-- the *leftmost* word will play that role.
+findIdForAddress :: [KannadaChunk] -> String -> Maybe Int
+findIdForAddress chunks "" = Just 0
+-- Caution: instead of pointing to a "NULL" node, we point to the ROOT instead.
+findIdForAddress chunks a = do
+  targetChunk <- find ((== (Just True)). fmap (== a) . getAddress . getChunkFS)
+               $ chunks
+  return $ getWordId
+         $ head {- <- leftmost -}
+         $ getWords
+         $ targetChunk

@@ -13,6 +13,8 @@ import Control.Exception.Base (assert)
 import KannadaTB
 import CoNLLOutput
 
+trim = unwords . words
+
 getKannadaTB :: IO KannadaTreebank
 getKannadaTB = do
     --let treebankPath = "treebank_small.xml"
@@ -22,128 +24,154 @@ getKannadaTB = do
     -- This whole file is a dirty desaster on pretty much every level.
     -- Some cleaning is necessary before it touches any meaningful code.
     let replace old new = intercalate new . splitOn old
-    let cleanTreebankFile = replace "af=''" "af='`"
-                          $ replace "troot=''''" "troot=\"\""
-                          $ replace "name='''" "name='`'"
-                          $ replace "<fs\t<fs" "\t<fs"
-                          $ replace "' ' name='" "' name='"
-                          $ replace ",0'.' name='" ",0`.' name='"
-                          $ replace "BLK\t<fs af=',,,,,,,'>" "BLK\t<fs af=',,,,,,,' name=''>"
-                          $ replace "\n1.1\tಕೇಂದ್ರೀಕೃತವಾದ JJ<fs\taf='ಕೇಂದ್ರೀಕೃತ,adj,,,,o,ಆದ,Axa'\t\n" "\n1.1\tಕೇಂದ್ರೀಕೃತವಾದ JJ<fs\taf='ಕೇಂದ್ರೀಕೃತ,adj,,,,o,ಆದ,Axa'>\t\n"
+    let cleanTreebankFile = replace "<fs\t<fs" "\t<fs"
+                          $ replace "' dmrel='" "' drel='"
+                          $ replace " JJ<fs\taf='" "\tJJ\t<fs af='"
+                          $ replace "Axa'\t\n" "Axa'>\n"
+                          $ replace "<fs af=' ಬರು,v,,sg,3" "<fs af='ಬರು,v,,sg,3"
+                          $ replace "<fs af=' ಎಷ್ಟು,adj,,,,o" "<fs af='ಎಷ್ಟು,adj,,,,o"
+                          $ replace "3,d,0,0\n" "3,d,0,0'>\n"
+                          $ replace "\t <fs " "\t<fs "
+                          $ replace "'>'>\n" "'>\n"
+                          $ replace "'\n" "'>\n"
+                          $ replace "> \n" ">\n"
+                          $ replace ">\t\n" ">\n"
                           $ dirtyTreebankFile
     
-    let originalTaglist = parseTags cleanTreebankFile
-        cleanTaglist = filter (\t -> not $ isTagText t
-                                  && null (words $ fromTagText t))
-                              originalTaglist
-    let allSentencesTags = map ( \ ((TagOpen "Sentence" [("id", i)]) : content)
-                                 -> (i, content) )
-                         $ map (dropWhile (~/= TagOpen "Sentence" []))
-                         $ init
-                         $ splitWhen (~== TagClose "Sentence")
-                         $ cleanTaglist
+    let allSentences :: [(String, [String])]
+        allSentences = map (\(headline : content) -> (getid headline, content))
+                     $ init -- drop </document>
+                     $ splitOn ["</Sentence>"]
+                     $ filter (not . null)
+                     $ dropWhile ((/= "<Sentence ") . take 10)
+                     $ lines cleanTreebankFile
+          where
+            getid = fromJust . lookup "id" . getAttrsForTag "Sentence" . trim
     
+    let clusterfuckFreeSentences = id --takeWhile (\(i,_) -> i /= "513")
+                                 -- Contain null super-chunk
+                                 $ filter ((/='0') . head . head . snd)
+                                 -- Empty non-root deprel
+                                 $ filter (not . (`elem` ["1189"]) . fst)
+                                 -- All A-sentences Are Bastards. Apparently.
+                                 $ filter ((/='A') . last . fst)
+                                 -- Strange big fs's in the original fs's.
+                                 $ filter (not . (`elem` ["423", "457"]) . fst)
+                                 $ allSentences
     
-    let clusterfuckFreeSentencesTags = takeWhile (\(i,_) -> i /= "513")
-                                     -- Invalid Addresses:
-                                     $ filter (not . (`elem` ["95"]) . fst)
-                                     -- This first filter is more restrictive, since right now I don't want even light clusterfucks.
-                                     $ filter (not . (`elem` ["6", "23", "183", "186", "263", "266", "366", "413", "503"]) . fst)
-                                     -- All A-sentences Are Bastards.
-                                     $ filter ((/='A') . last . fst)
-                                     -- These contain shit beyond all hope. What the actual fuck.
-                                     $ filter (not . (`elem` ["423", "427", "457"]) . fst)
-                                     $ allSentencesTags
+    let lookatit x ss = case x of Right s -> (s:ss); Left e -> trace e ss
+    let fineSentenceParses = foldr lookatit []
+                           $ map (parseSentence >=> checkSentence)
+                           $ clusterfuckFreeSentences
     
-    -- print $ length clusterfuckFreeSentencesTags
+    length fineSentenceParses `seq` return ()
     
-    -- The first roughly 500 sentences that don't fail basic assertions. Let's just work with them for now.
-    let fineSentenceParses = map parseSentence $ clusterfuckFreeSentencesTags
+    putStrLn $ "Of " ++ show (length allSentences) ++ " input sentences, "
+                     ++ show (length fineSentenceParses) ++ " are usable."
     
     return fineSentenceParses
 
--- Possible future assertions:
--- * only one empty drel per sentence
--- * drels have to be valid
--- * what the hell is troot and mtype?
-
 parseSentence
-  :: (String, [Tag String]) -- ^ (id of sentence, tags)
-  -> KannadaSentence
-parseSentence (i, tags) = id -- trace ("\n\n--< " ++ show i ++ " >--\n\n")
-                        $ reverse
-                        $ map (\c -> c{getWords = reverse $ getWords c})
-                        $ evalState (chunkReader [] tags) 1
+  :: (String, [String]) -- ^ (id of sentence, lines)
+  -> Either String (String, KannadaSentence) -- ^ error message or id and sentence
+parseSentence (i, alllines)
+  = id --trace ("\n--< " ++ i ++ " >--")
+  $ fmap ((,) i)
+  $ fmap (reverse . map (\c -> c{getWords = reverse $ getWords c}))
+  $ evalState (chunkReader [] alllines) 1
   where
-    chunkReader :: [KannadaChunk] -> [Tag String] -> State Int [KannadaChunk]
-    chunkReader chunks (TagText text : TagOpen "fs" attrs : ws)
-      = do chunks' <- case words text of
-              [      _, "((", chunkTag] -- open first chunk
-                -> makeChunk chunkTag
-                    >>= return . (:chunks)
-              ["))", _, "((", chunkTag] -- open next chunk
-                -> makeChunk chunkTag
-                    >>= return . (:chunks)
-              [_, word, fullTag] -- insert word into chunk
-                -> updateChunk (head chunks) word fullTag
-                    >>= return . (:(tail chunks))
-              -- Seriously, what the hell. This is usually because some chunks don't have a fs tag. TODO.
-              ws -> error {-trace-} ("Failing at a line with " ++ show (length ws) ++ " words: " ++ unwords ws)
-              --    $ return (junkChunk : chunks)
-              --          where junkChunk = KannadaChunk "JUNK" (ChunkFeatureSet "JUNK" "") []
-           chunkReader chunks' ws
-        where
-          makeChunk :: String -> State Int KannadaChunk
-          makeChunk chunkTag
-            = fsMemberCheckChunk
-            $ return (KannadaChunk chunkTag fs [])
-              where
-                address = fromJust $ lookup "name" attrs
-                [drelname, drelhead] = splitOn ":"
-                                     $ fromMaybe "ROOT:" (lookup "drel" attrs)
-                fs = ChunkFeatureSet address drelname drelhead
-          updateChunk :: KannadaChunk -> String -> String -> State Int KannadaChunk
-          updateChunk chunk word fullTag
-            = fsMemberCheckWord
-            $ do id <- get
-                 put (id + 1)
-                 return $ chunk{getWords = words' id}
-              where
-                words' i = (KannadaWord i word fullTag fs) : getWords chunk
-                fs = fsFrom
-                   $ splitOn ","
-                   $ lookup' "af" attrs
-                fsFrom (l:c:f) = WordFeatureSet l c f
-          
-          -- Sanity Checks
-          fsMemberCheckChunk = flip (foldr ($))
-            [ assert $ attrContains "name" -- CAUTION: this does not check if these links are valid!
-            , assert $ attrEqualsIfExists "af" ",,,,,,,"
-            , assert $ attrAtMost ["name", "af", "drel"]
-            ]
-          fsMemberCheckWord = flip (foldr ($))
-            [ assert $ attrContains "af" -- There are some who don't contain any. Infer it or what? TODO.
-            , assert $ attrAtMost ["name", "af", "troot", "mtype"]
-            , assert $ attrOnlyNullMay "troot"
-            , assert $ attrOnlyNullMay "mtype"
-            ] -- name should be there, too, but we don't need it
-          attrContains key = not $ lookup key attrs == Nothing
-          attrEqualsIfExists key val = case lookup key attrs of
-            Nothing -> True
-            Just v -> v == val
-          attrAtMost keys = all (\a -> (fst a) `elem` keys) attrs
-          attrOnlyNullMay key = case lookup key attrs of
-                                  Just v -> id -- trace (key ++ ": " ++ v)
-                                          $ (take 1 $ drop 1 $ words text) == ["NULL"]
-                                  Nothing -> True
-    chunkReader chunks [TagText "\n\t))\n"] -- end of final chunk
-      = return chunks
-    chunkReader _ ts = error $ "Unexpected XML Tag " ++ show (take 2 ts)
-    
-    lookup' key assocs
-      = case lookup key assocs of
-          Just val -> val
-          Nothing -> error ("Could not find key " ++ key ++ " in a <fs> tag!")
+    chunkReader :: [KannadaChunk] -> [String] -> State Int (Either String [KannadaChunk])
+    chunkReader chunksSoFar [] = return $ Right chunksSoFar
+    chunkReader chunksSoFar (line : remlines)
+      = case splitOn "\t" line of -- could also use `words`
+          _ : "))" : _
+            -> chunkReader chunksSoFar remlines
+          _ : "((" : chunktag : [chunkfs]
+            -> let attrs = if null chunkfs
+                           then []
+                           else getAttrsForTag "fs" chunkfs
+                   maybeaddress = lookup "name" attrs
+                   [drelname, drelhead] = splitOn ":"
+                                        $ fromMaybe "ROOT:"
+                                        $ lookup "drel" attrs
+                   fs = ChunkFeatureSet maybeaddress drelname drelhead
+                   newChunk = KannadaChunk (trim chunktag) fs []
+               in chunkReader (newChunk : chunksSoFar) remlines
+          _ : form : finetag : [wordfs]
+            -> do wordid <- get
+                  put (wordid + 1)
+                  let (workingChunk : finishedChunks) = chunksSoFar
+                      attrs = if null wordfs
+                              then [("af", ",,,,,,,")]
+                              else getAttrsForTag "fs" wordfs
+                      af = case lookup "af" attrs of
+                             Just v -> v
+                             Nothing -> ",,,,,,," -- Imply standard af.
+                      updatedChunk = do -- Either monad
+                          fs <- case splitOn "," af of
+                                  (l:c:f) -> return $ WordFeatureSet l c f
+                                  _ -> sentenceError i $ "Malformed af='" ++ af ++ "'"
+                          let newWords = KannadaWord wordid (trim form) (trim finetag) fs
+                                       : getWords workingChunk
+                          return $ workingChunk{getWords = newWords}
+                  case updatedChunk of
+                    Right c -> chunkReader (c : finishedChunks) remlines
+                    Left e -> return $ Left e
+          faultyLine
+            -> return . sentenceError i
+             $ "Don't know how to deal with TSV line " ++ show faultyLine
+
+sentenceError :: String -> String -> Either String a
+sentenceError i s = Left $ "Sentence " ++ i ++ ": " ++ s
+
+-- We can't use TagSoup or something proper, because the file doesn't even care
+-- about basic SGML conformity.
+getAttrsForTag :: String -> String -> [(String, String)]
+getAttrsForTag name tag
+  = assert (take (1 + length name) tag == "<" ++ name && last tag == '>')
+  $ map ((\[k, v] -> (k, unquote v)) . splitOn "=")
+  $ words
+  $ drop (2 + length name) . init
+  $ tag
+  where unquote cs
+          | head cs == '\'' && last cs == '\'' = tail $ init cs
+          | head cs == '"' && last cs == '"' = tail $ init cs
+          | otherwise = cs
+
+checkSentence
+  :: (String, KannadaSentence) -- ^ (id of sentence, sentence itself)
+  -> Either String (String, KannadaSentence)
+checkSentence (sid, cs) = fmap ((,) sid)
+                        $ mapM (checkChunkFS >=> checkAddress) cs
+  where
+    checkChunkFS c@(KannadaChunk{getChunkFS = fs})
+      | fs == (ChunkFeatureSet Nothing "ROOT" "") = sentenceError sid $ "Chunk without fs"
+      | otherwise = Right c
+    checkAddress c@(KannadaChunk{getChunkFS = ChunkFeatureSet{getDRelHead = a}})
+      | null a || findIdForAddress cs a /= Nothing = Right c
+      | otherwise = sentenceError sid $ "Invalid Address: " ++ a
+
+{-
+
+Possible future assertions:
+ * only one empty drel per sentence
+ * drels have to be valid
+ * what the hell is troot and mtype?
+
+Old Sanity Checks:
+  fsMemberCheckChunk = flip (foldr ($))
+    [ assert $ attrContains "name" -- CAUTION: this does not check if these links are valid!
+    , assert $ attrEqualsIfExists "af" ",,,,,,,"
+    , assert $ attrAtMost ["name", "af", "drel"]
+    ]
+  fsMemberCheckWord = flip (foldr ($))
+    [ assert $ attrContains "af" -- There are some who don't contain any. Infer it or what? TODO.
+    , assert $ attrAtMost ["name", "af", "troot", "mtype"]
+    , assert $ attrOnlyNullMay "troot"
+    , assert $ attrOnlyNullMay "mtype"
+    ] -- name should be there, too, but we don't need it
+
+-}
 
 main = do
     parsedSentences <- getKannadaTB

@@ -9,7 +9,7 @@ module CoNLLOutput
 import Data.List (intercalate)
 import System.IO.Unsafe (unsafeInterleaveIO)
 
-type CoNLLTreebank = [CoNLLSentence]
+type CoNLLTreebank = [(Maybe String, CoNLLSentence)] -- ^ sentence with possible (string) id
 type CoNLLSentence = [CoNLLWord]
 data CoNLLWord = CoNLLWord
     { getId :: Int -- starting with 1
@@ -25,20 +25,29 @@ data CoNLLWord = CoNLLWord
     }
     deriving (Show)
 
--- | Generates one TSV-line.
-stringifyCoNLLWord :: CoNLLWord -> String
-stringifyCoNLLWord w@(CoNLLWord i fr l c p fe h d ph pd)
-  = intercalate "\t"
-  $ map encodeEmpty
-  $ [show i, fr, l, c, p, fe, show h, rootify d, ph, pd]
+stringifyCoNLLSentence :: (Maybe String, CoNLLSentence) -> String
+stringifyCoNLLSentence (msid, ws) = unlines $ map stringifyCoNLLWord ws
   where
-    encodeEmpty "" = "_"
-    encodeEmpty s = s
-    rootify "" = if h == 0 then "ROOT" else error ("Empty non-root deprel in word: " ++ show w)
-    rootify s = s
+    -- | Generates one TSV-line.
+    stringifyCoNLLWord :: CoNLLWord -> String
+    stringifyCoNLLWord w@(CoNLLWord i fr l c p fe h d ph pd)
+      = intercalate "\t"
+      $ map encodeEmpty
+      $ [show i, fr, l, c, p, fe, show h, rootify d, ph, pd]
+      where
+        encodeEmpty "" = "_"
+        encodeEmpty s = s
+        rootify "" = if h == 0
+                     then "ROOT"
+                     else error $ sentenceInfo
+                                  ++ "Empty non-root deprel in word: "
+                                  ++ show w
+        rootify s = s
+        sentenceInfo = case msid of
+                         Nothing -> ""
+                         Just sid -> "Sentence " ++ sid ++ ": "
+                                  
 
-stringifyCoNLLSentence :: CoNLLSentence -> String
-stringifyCoNLLSentence ws = unlines $ map stringifyCoNLLWord ws
 
 stringifyCoNLLTreebank :: CoNLLTreebank -> String
 stringifyCoNLLTreebank ss = unlines $ map stringifyCoNLLSentence ss
@@ -55,7 +64,7 @@ generateTrainAndTestFiles ml path coNLLTB = do
     let l = case ml of
               Nothing -> length coNLLTB
               Just l' -> l'
-        splitPoint = 19 * (l `div` 20)
+        splitPoint = 9 * (l `div` 10)
     
     let f1 = writeCoNLLTreebankTo (path ++ "_train.conll")
     let f2 = writeCoNLLTreebankTo (path ++ "_test.conll")
