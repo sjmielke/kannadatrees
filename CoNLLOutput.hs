@@ -7,6 +7,7 @@ module CoNLLOutput
 ) where
 
 import Data.List (intercalate)
+import Data.List.Split (splitOn)
 import System.IO.Unsafe (unsafeInterleaveIO)
 
 type CoNLLTreebank = [(Maybe String, CoNLLSentence)] -- ^ sentence with possible (string) id
@@ -25,49 +26,54 @@ data CoNLLWord = CoNLLWord
     }
     deriving (Show)
 
-stringifyCoNLLSentence :: (Maybe String, CoNLLSentence) -> String
-stringifyCoNLLSentence (msid, ws) = unlines $ map stringifyCoNLLWord ws
+stringifyCoNLLTreebank :: String -> CoNLLTreebank -> String
+stringifyCoNLLTreebank rootrelname ss = unlines $ map stringifyCoNLLSentence ss
   where
-    -- | Generates one TSV-line.
-    stringifyCoNLLWord :: CoNLLWord -> String
-    stringifyCoNLLWord w@(CoNLLWord i fr l c p fe h d ph pd)
-      = intercalate "\t"
-      $ map encodeEmpty
-      $ [show i, fr, l, c, p, fe, show h, rootify d, ph, pd]
+    stringifyCoNLLSentence :: (Maybe String, CoNLLSentence) -> String
+    stringifyCoNLLSentence (msid, ws) = unlines $ map stringifyCoNLLWord ws
       where
-        encodeEmpty "" = "_"
-        encodeEmpty s = s
-        rootify "" = if h == 0
-                     then "ROOT"
-                     else error $ sentenceInfo
-                                  ++ "Empty non-root deprel in word: "
-                                  ++ show w
-        rootify s = s
-        sentenceInfo = case msid of
-                         Nothing -> ""
-                         Just sid -> "Sentence " ++ sid ++ ": "
-                                  
+        -- | Generates one TSV-line.
+        stringifyCoNLLWord :: CoNLLWord -> String
+        stringifyCoNLLWord w@(CoNLLWord i fr l c p fe h d ph pd)
+          = intercalate "\t"
+          $ map encodeEmpty
+          $ [show i, nospaces fr, nospaces l, c, p, fe, show h, rootify d, ph, pd]
+          where
+            encodeEmpty "" = "_"
+            encodeEmpty s = s
+            rootify "" = if h == 0
+                         then rootrelname
+                         else error $ sentenceInfo
+                                      ++ "Empty non-root deprel in word: "
+                                      ++ show w
+            rootify s = s
+            -- | We have to do this because MaltOptimizer fails on tokens with spaces.
+            -- All it would take is 6 more characters in one line of sourcecode. Sad.
+            nospaces = intercalate "_" . splitOn " "
+            sentenceInfo = case msid of
+                             Nothing -> ""
+                             Just sid -> "Sentence " ++ sid ++ ": "
 
 
-stringifyCoNLLTreebank :: CoNLLTreebank -> String
-stringifyCoNLLTreebank ss = unlines $ map stringifyCoNLLSentence ss
-
-writeCoNLLTreebankTo :: FilePath -> CoNLLTreebank -> IO ()
-writeCoNLLTreebankTo p ss = writeFile p $ stringifyCoNLLTreebank ss
+writeCoNLLTreebankTo :: String -> FilePath -> CoNLLTreebank -> IO ()
+writeCoNLLTreebankTo rootrelname p ss
+  = writeFile p
+  $ stringifyCoNLLTreebank rootrelname ss
 
 generateTrainAndTestFiles
   :: Maybe Int -- ^ number of sentences (to control memory!)
+  -> String -- ^ name of the root relation
   -> FilePath -- ^ output prefix (full path, no extension)
   -> CoNLLTreebank -- ^ input data
   -> IO ()
-generateTrainAndTestFiles ml path coNLLTB = do
+generateTrainAndTestFiles ml rootrelname path coNLLTB = do
     let l = case ml of
               Nothing -> length coNLLTB
               Just l' -> l'
         splitPoint = 9 * (l `div` 10)
     
-    let f1 = writeCoNLLTreebankTo (path ++ "_train.conll")
-    let f2 = writeCoNLLTreebankTo (path ++ "_test.conll")
+    let f1 = writeCoNLLTreebankTo rootrelname (path ++ "_train.conll")
+    let f2 = writeCoNLLTreebankTo rootrelname (path ++ "_test.conll")
     
     performFunctionAfterServing splitPoint f2 coNLLTB >>= f1
 

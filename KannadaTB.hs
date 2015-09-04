@@ -76,7 +76,9 @@ transformSentence (sid, chunks)
                       (enrichNULL lemma)
                       coarsetag
                       fulltag
-                      (intercalate "|" $ filter (not . null) fs)
+                      (intercalate "|" $ map (uncurry (:))
+                                       $ filter (not . null . snd)
+                                       $ zip ['a'..] fs)
                       (fromJust . findIdForAddress chunks $ getDRelHead chunkfs)
                       (getDRel chunkfs)
                       ""

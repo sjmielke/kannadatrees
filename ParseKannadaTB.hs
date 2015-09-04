@@ -176,4 +176,4 @@ Old Sanity Checks:
 main = do
     parsedSentences <- getKannadaTB
     let coNLLTB = transformKannadaTBToCoNLL parsedSentences
-    generateTrainAndTestFiles Nothing "../data/Kannada" coNLLTB
+    generateTrainAndTestFiles Nothing "ROOT" "../data/Kannada" coNLLTB

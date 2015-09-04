@@ -1,7 +1,7 @@
 module ParseHamburgTB where
 
 import Control.DeepSeq (($!!))
-import Data.List (find)
+import Data.List (find, intercalate)
 import Data.List.Split (splitOn)
 import Data.Maybe (fromJust, fromMaybe)
 import System.Directory (getDirectoryContents)
@@ -13,8 +13,8 @@ main = do
     files <- fmap (take 3000 . drop 2) $ getDirectoryContents hamburgTBPath -- skip "." and ".."
     -- ^ This file list is literally the only thing that is continuously
     -- occupying memory during the program.
-    coNLLTB <- sequence_lazy $ map ((,) Nothing . fileCruncher) files
-    generateTrainAndTestFiles (Just $ length files) "../data/Hamburg" coNLLTB
+    coNLLTB <- sequence_lazy $ map (fmap ((,) Nothing) . fileCruncher) files
+    generateTrainAndTestFiles (Just $ length files) "S" "../data/Hamburg" coNLLTB
       where
         hamburgTBPath = "../data/hamburg_dependency_treebank/part_A/"
         fileCruncher name = do 
@@ -36,7 +36,7 @@ parseSentence
                        $ fromJust
                        $ find ((== "'SYN' -> ") . take 9) attrs
               
-              form = unquote $ (words word) !! 2
+              form = unquote $ (unwords $ drop 2 $ words word)
               postag = fromJust $ lookup "cat" attrassocs
           in CoNLLWord
                { getId = read $ (words word) !! 1
@@ -47,7 +47,9 @@ parseSentence
                , getFeats = drop 1
                           $ foldl (\acc k -> case lookup k attrassocs of
                                                Nothing -> acc
-                                               Just v -> acc ++ "|" ++ v
+                                               Just v -> acc ++ "|"
+                                                             ++ k ++ "="
+                                                             ++ v
                                   ) ""
                           $ ["case", "degree", "gender", "number", "flexion", "person", "tense"]
                , getHead = read $ headinfo !! 4
