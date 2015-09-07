@@ -10,6 +10,8 @@ import Data.List (intercalate)
 import Data.List.Split (splitOn)
 import System.IO.Unsafe (unsafeInterleaveIO)
 
+-- TODO: define export options: 3 arguments to main functions + purge feats
+
 type CoNLLTreebank = [(Maybe String, CoNLLSentence)] -- ^ sentence with possible (string) id
 type CoNLLSentence = [CoNLLWord]
 data CoNLLWord = CoNLLWord

@@ -2,7 +2,7 @@ module ParseKannadaTB where
 
 import Text.HTML.TagSoup
 import Data.Foldable (foldl')
-import Data.List (intercalate)
+import Data.List (intercalate, find)
 import Data.List.Split (splitOn, splitWhen)
 import Data.Maybe (fromJust, fromMaybe)
 import Control.Monad.State.Lazy
@@ -142,7 +142,9 @@ checkSentence
   :: (String, KannadaSentence) -- ^ (id of sentence, sentence itself)
   -> Either String (String, KannadaSentence)
 checkSentence (sid, cs) = fmap ((,) sid)
-                        $ mapM (checkChunkFS >=> checkAddress) cs
+                        -- two separate runs to make sure addresses work for checking for cycles
+                        $ mapM (checkChunkFS >=> checkAddress) >=> mapM (checkCyclity [])
+                        $ cs
   where
     checkChunkFS c@(KannadaChunk{getChunkFS = fs})
       | fs == (ChunkFeatureSet Nothing "ROOT" "") = sentenceError sid $ "Chunk without fs"
@@ -150,28 +152,29 @@ checkSentence (sid, cs) = fmap ((,) sid)
     checkAddress c@(KannadaChunk{getChunkFS = ChunkFeatureSet{getDRelHead = a}})
       | null a || findIdForAddress cs a /= Nothing = Right c
       | otherwise = sentenceError sid $ "Invalid Address: " ++ a
+    -- | Right now this is not very efficient. Might be worth implementing more cleverly.
+    checkCyclity fringe c@(KannadaChunk{getChunkFS = ChunkFeatureSet{getDRelHead = a}})
+      = do let nextAddress = fromJust $ findIdForAddress cs a -- checkAdress allows fromJust
+           let nextChunk = find (any ((==nextAddress) . getWordId) . getWords) cs
+           -- trace (show nextAddress ++ ": " ++ show (nextChunk /= Nothing)) $ return ()
+           if nextAddress == 0
+             then Right c
+             else if nextAddress `elem` fringe
+                    then sentenceError sid $ "Cycle with word no. " ++ show nextAddress
+                    else case checkCyclity (nextAddress : fringe) (fromJust nextChunk) of
+                           Left e -> Left e
+                           Right _ -> Right c
 
 {-
-
 Possible future assertions:
  * only one empty drel per sentence
- * drels have to be valid
  * what the hell is troot and mtype?
-
-Old Sanity Checks:
-  fsMemberCheckChunk = flip (foldr ($))
-    [ assert $ attrContains "name" -- CAUTION: this does not check if these links are valid!
-    , assert $ attrEqualsIfExists "af" ",,,,,,,"
-    , assert $ attrAtMost ["name", "af", "drel"]
-    ]
-  fsMemberCheckWord = flip (foldr ($))
-    [ assert $ attrContains "af" -- There are some who don't contain any. Infer it or what? TODO.
-    , assert $ attrAtMost ["name", "af", "troot", "mtype"]
-    , assert $ attrOnlyNullMay "troot"
-    , assert $ attrOnlyNullMay "mtype"
-    ] -- name should be there, too, but we don't need it
-
 -}
+
+fromJust' :: Maybe a -> a
+fromJust' Nothing = error "AAAAH!"
+fromJust' (Just x) = x
+
 
 main = do
     parsedSentences <- getKannadaTB
