@@ -15,17 +15,28 @@ do
 			;;
 		train)
 			cd ../data
-			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_train.conll -m learn -a $TRAINALGO
-			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_test.conll -o out.conll -m parse
-			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_test.conll -s out.conll -v 0
+			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_train.conll -m learn $BONUSFLAG
+			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_test.conll -o $1_parsed.conll -m parse
+			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_gold.conll -s $1_parsed.conll -v 0
 			cd ../code
 			;;
-		optikannada)
+		optitrain)
+			cd ../MaltOptimizer-1.0.3
+			COMMONCMD="java -jar MaltOptimizer.jar"
+			COMMONFLAGS="-m /usr/share/java/maltparser/maltparser-1.8.1.jar -c ../data/$1_train.conll -v cv"
+			$COMMONCMD -p 1 $COMMONFLAGS &&
+			$COMMONCMD -p 2 $COMMONFLAGS &&
+			$COMMONCMD -p 3 $COMMONFLAGS
+			cp finalOptionsFile.xml ../data/$1_finalOptionsFile.xml
+			echo "REMEMBER TO COPY THE SPECIFIED FEATS FILE TO 'data/$1_FEATS.xml'!"
+			cd ../code
+			;;
+		optitest)
 			cd ../data
-			COMMONOPTI="-c test -f ../MaltOptimizer-1.0.3/finalOptionsFile.xml -F ../MaltOptimizer-1.0.3/addStackFEATS0.xml"
-			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar $COMMONOPTI -i $1_train.conll -m learn
-			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar $COMMONOPTI -i $1_test.conll -o out.conll -m parse
-			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_test.conll -s out.conll -v 0
+			COMMONCMD="java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -f $1_finalOptionsFile.xml -F $1_FEATS.xml"
+			$COMMONCMD -i $1_train.conll -m learn $BONUSFLAG
+			$COMMONCMD -i $1_test.conll -o $1_parsed.conll -m parse
+			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_gold.conll -s $1_parsed.conll -v 0
 			cd ../code
 			;;
 		treeview)
@@ -46,12 +57,13 @@ do
 			#     usableFonts.remove(j);
 			#     j--;
 			# }
-			java se.vxu.msi.malteval.MaltEvalConsole -g ../../../data/$1_test.conll -s ../../../data/out.conll -v 1
+			java se.vxu.msi.malteval.MaltEvalConsole -g ../../../data/$1_gold.conll -s ../../../data/$1_parsed.conll -v 1
 			cd ../../../code
 			;;
+		Kannada|Hamburg)
+			:
+			;;
 		*)
-			# Yup, this is also called when we specify the language in $1
-			# Might fix it, might also not.
-			TRAINALGO=$arg
+			BONUSFLAG=$arg
 	esac
 done

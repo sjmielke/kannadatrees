@@ -179,4 +179,5 @@ fromJust' (Just x) = x
 main = do
     parsedSentences <- getKannadaTB
     let coNLLTB = transformKannadaTBToCoNLL parsedSentences
-    generateTrainAndTestFiles Nothing "ROOT" "../data/Kannada" coNLLTB
+        kannadaOpts = stdCoNLLExportOptions{getOutputPrefix = "../data/Kannada"}
+    generateTrainAndTestFiles kannadaOpts coNLLTB

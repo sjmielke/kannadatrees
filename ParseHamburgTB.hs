@@ -14,7 +14,11 @@ main = do
     -- ^ This file list is literally the only thing that is continuously
     -- occupying memory during the program.
     coNLLTB <- sequence_lazy $ map (fmap ((,) Nothing) . fileCruncher) files
-    generateTrainAndTestFiles (Just $ length files) "S" "../data/Hamburg" coNLLTB
+    let hamburgOpts = stdCoNLLExportOptions{ getOutputPrefix = "../data/Hamburg"
+                                           , getNoOfSentences = Just $ length files
+                                           , getRootRelation = "S"
+                                           }
+    generateTrainAndTestFiles hamburgOpts coNLLTB
       where
         hamburgTBPath = "../data/hamburg_dependency_treebank/part_A/"
         fileCruncher name = do 
@@ -54,7 +58,7 @@ parseSentence
                           $ ["case", "degree", "gender", "number", "flexion", "person", "tense"]
                , getHead = read $ headinfo !! 4
                , getDepRel = unquote $ headinfo !! 2
-               , getPHead = ""
+               , getPHead = -1
                , getPDepRel = ""
                }
       unquote = tail . init

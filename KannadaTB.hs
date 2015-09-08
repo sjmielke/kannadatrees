@@ -81,7 +81,7 @@ transformSentence (sid, chunks)
                                        $ zip (zipWith (:) ['a'..] $ repeat "=") fs) -- TODO: choose proper names
                       (fromJust . findIdForAddress chunks $ getDRelHead chunkfs)
                       (getDRel chunkfs)
-                      ""
+                      (-1)
                       ""
             where
               enrichNULL "NULL" = chunkTag

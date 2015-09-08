@@ -1,6 +1,7 @@
 module CoNLLOutput
-( writeCoNLLTreebankTo
-, generateTrainAndTestFiles
+( generateTrainAndTestFiles
+, CoNLLExportOptions (..)
+, stdCoNLLExportOptions
 , CoNLLTreebank
 , CoNLLSentence
 , CoNLLWord (..)
@@ -10,7 +11,21 @@ import Data.List (intercalate)
 import Data.List.Split (splitOn)
 import System.IO.Unsafe (unsafeInterleaveIO)
 
--- TODO: define export options: 3 arguments to main functions + purge feats
+data CoNLLExportOptions = CoNLLExportOptions
+    { getOutputPrefix :: FilePath -- ^ output prefix (full path, no extension)
+    , getNoOfSentences :: Maybe Int -- ^ number of sentences (to control memory!)
+    , getRootRelation :: String -- ^ name of the root relation
+    , getVisibleFeats :: Bool -- ^ visiblity of lemma, coarse and full postag and features in train and test sets
+    , getVisibleDep :: Bool -- ^ visiblity of dependency information in train and test sets
+    }
+
+stdCoNLLExportOptions = CoNLLExportOptions
+    { getOutputPrefix = error "Please specify export filename!"
+    , getNoOfSentences = Nothing
+    , getRootRelation = "ROOT"
+    , getVisibleFeats = True
+    , getVisibleDep = False
+    }
 
 type CoNLLTreebank = [(Maybe String, CoNLLSentence)] -- ^ sentence with possible (string) id
 type CoNLLSentence = [CoNLLWord]
@@ -23,13 +38,17 @@ data CoNLLWord = CoNLLWord
     , getFeats :: String
     , getHead :: Int -- 0 means no head
     , getDepRel :: String
-    , getPHead :: String
+    , getPHead :: Int
     , getPDepRel :: String
     }
     deriving (Show)
 
-stringifyCoNLLTreebank :: String -> CoNLLTreebank -> String
-stringifyCoNLLTreebank rootrelname ss = unlines $ map stringifyCoNLLSentence ss
+stringifyCoNLLTreebank
+  :: CoNLLExportOptions
+  -> Bool -- ^ training (cleaning) mode 
+  -> CoNLLTreebank
+  -> String
+stringifyCoNLLTreebank opts clean ss = unlines $ map stringifyCoNLLSentence ss
   where
     stringifyCoNLLSentence :: (Maybe String, CoNLLSentence) -> String
     stringifyCoNLLSentence (msid, ws) = unlines $ map stringifyCoNLLWord ws
@@ -39,15 +58,27 @@ stringifyCoNLLTreebank rootrelname ss = unlines $ map stringifyCoNLLSentence ss
         stringifyCoNLLWord w@(CoNLLWord i fr l c p fe h d ph pd)
           = intercalate "\t"
           $ map encodeEmpty
-          $ [show i, nospaces fr, nospaces l, c, p, fe, show h, rootify d, ph, pd]
+          $ [ show i
+            , nospaces fr
+            , nospaces l
+            , c
+            , p
+            , fe
+            , showPos h
+            , rootify d
+            , showPos ph
+            , pd
+            ]
           where
+            showPos x = if x < 0 then "0" else show x -- TODO: Why am I forced to give a valid head? This. doesn't make any sense.
             encodeEmpty "" = "_"
             encodeEmpty s = s
-            rootify "" = if h == 0
-                         then rootrelname
-                         else error $ sentenceInfo
-                                      ++ "Empty non-root deprel in word: "
-                                      ++ show w
+            rootify ""
+             | clean && not (getVisibleDep opts) = ""
+             | h == 0 = getRootRelation opts
+             | otherwise = error $ sentenceInfo
+                                   ++ "Empty non-root deprel in word: "
+                                   ++ show w
             rootify s = s
             -- | We have to do this because MaltOptimizer fails on tokens with spaces.
             -- All it would take is 6 more characters in one line of sourcecode. Sad.
@@ -56,28 +87,43 @@ stringifyCoNLLTreebank rootrelname ss = unlines $ map stringifyCoNLLSentence ss
                              Nothing -> ""
                              Just sid -> "Sentence " ++ sid ++ ": "
 
-
-writeCoNLLTreebankTo :: String -> FilePath -> CoNLLTreebank -> IO ()
-writeCoNLLTreebankTo rootrelname p ss
-  = writeFile p
-  $ stringifyCoNLLTreebank rootrelname ss
+cleanUnwantedFields
+  :: CoNLLExportOptions
+  -> CoNLLWord
+  -> CoNLLWord
+cleanUnwantedFields opts w
+  = let noFeats = if getVisibleFeats opts
+                    then w
+                    else w{getLemma = "", getCPosTag = "", getPosTag = "", getFeats = ""}
+        noDep = if getVisibleDep opts
+                  then noFeats
+                  else noFeats{getHead = -1, getDepRel = "", getPHead = -1, getPDepRel = ""}
+    in noDep
 
 generateTrainAndTestFiles
-  :: Maybe Int -- ^ number of sentences (to control memory!)
-  -> String -- ^ name of the root relation
-  -> FilePath -- ^ output prefix (full path, no extension)
-  -> CoNLLTreebank -- ^ input data
+  :: CoNLLExportOptions
+  -> CoNLLTreebank
   -> IO ()
-generateTrainAndTestFiles ml rootrelname path coNLLTB = do
-    let l = case ml of
+generateTrainAndTestFiles opts coNLLTB = do
+    let l = case getNoOfSentences opts of
               Nothing -> length coNLLTB
               Just l' -> l'
         splitPoint = 9 * (l `div` 10)
+        stringifyClean False = stringifyCoNLLTreebank opts False
+        stringifyClean True  = stringifyCoNLLTreebank opts True
+                             . map (\(i, ws) -> (i, map (cleanUnwantedFields opts) ws))
+        wTrain, wTest, wGold :: CoNLLTreebank -> IO ()
+        wTrain = writeFile (getOutputPrefix opts ++ "_train.conll")
+               . stringifyClean False
+        wTest  = writeFile (getOutputPrefix opts ++ "_test.conll")
+               . stringifyClean True
+        wGold  = writeFile (getOutputPrefix opts ++ "_gold.conll")
+               . stringifyClean False
     
-    let f1 = writeCoNLLTreebankTo rootrelname (path ++ "_train.conll")
-    let f2 = writeCoNLLTreebankTo rootrelname (path ++ "_test.conll")
-    
-    performFunctionAfterServing splitPoint f2 coNLLTB >>= f1
+    firstPart <- performFunctionAfterServing splitPoint
+                                             (\ss -> wTest ss >> wGold ss)
+                                             coNLLTB
+    wTrain firstPart
 
 splitAt' :: Int -> [a] -> ([a], [a])
 splitAt' 0 xs = ([], xs)
