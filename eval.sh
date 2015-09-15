@@ -11,35 +11,37 @@ do
 		compile)
 			ghc -main-is Parse$1TB Parse$1TB -o parse -Wall -O2
 			./parse
-			rm parse Parse$1TB.{hi,o}
-			;;
-		train)
-			cd ../data
-			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_train.conll -m learn $BONUSFLAG
-			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_test.conll -o $1_parsed.conll -m parse
-			cd ../code
+			rm parse *.{hi,o}
 			;;
 		evaluate)
 			cd ../data
-			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_gold.conll -s $1_parsed.conll -v 0 $BONUSFLAG
+			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1/sentences/gold*.conll -s $1/sentences/parsed*.conll -v 0 $BONUSFLAG
 			cd ../code
 			;;
-		optifind)
+		optimize)
 			cd ../MaltOptimizer-1.0.3
 			COMMONCMD="java -jar MaltOptimizer.jar"
-			COMMONFLAGS="-m /usr/share/java/maltparser/maltparser-1.8.1.jar -c ../data/$1_train.conll -v cv"
+			# The python-aliasing is just for me, use at your own discretion.
+			mkdir /tmp/bin; ln -s /usr/bin/python2 /tmp/bin/python; export PATH=/tmp/bin:$PATH
+			COMMONFLAGS="-m /usr/share/java/maltparser/maltparser-1.8.1.jar -c ../data/$1/sentences/full.conll -v cv"
 			$COMMONCMD -p 1 $COMMONFLAGS &&
 			$COMMONCMD -p 2 $COMMONFLAGS &&
 			$COMMONCMD -p 3 $COMMONFLAGS
-			cp finalOptionsFile.xml ../data/$1_finalOptionsFile.xml
-			echo "REMEMBER TO COPY THE SPECIFIED FEATS FILE TO 'data/$1_FEATS.xml'!"
+			cp finalOptionsFile.xml ../data/$1/finalOptionsFile.xml
+			echo "REMEMBER TO COPY THE SPECIFIED FEATS FILE TO 'data/$1/FEATS.xml'!"
 			cd ../code
 			;;
-		optitrain)
+		train)
 			cd ../data
-			COMMONCMD="java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -f $1_finalOptionsFile.xml -F $1_FEATS.xml"
-			$COMMONCMD -i $1_train.conll -m learn $BONUSFLAG
-			$COMMONCMD -i $1_test.conll -o $1_parsed.conll -m parse
+			COMMONCMD="java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -f $1/finalOptionsFile.xml -F $1/FEATS.xml"
+			for i in {1..5} # hardcoded in converter
+			do
+				echo;echo
+				echo "### Now training and testing fold $i"
+				echo
+				$COMMONCMD -i $1/sentences/train$i.conll -m learn $BONUSFLAG
+				$COMMONCMD -i $1/sentences/test$i.conll -o $1/sentences/parsed$i.conll -m parse
+			done
 			cd ../code
 			;;
 		treeview)
@@ -60,7 +62,7 @@ do
 			#     usableFonts.remove(j);
 			#     j--;
 			# }
-			java se.vxu.msi.malteval.MaltEvalConsole -g ../../../data/$1_gold.conll -s ../../../data/$1_parsed.conll -v 1
+			java se.vxu.msi.malteval.MaltEvalConsole -g ../../../data/$1/sentences/gold1.conll -s ../../../data/$1/sentences/parsed1.conll -v 1
 			cd ../../../code
 			;;
 		Kannada|Hamburg)

@@ -17,7 +17,7 @@ trim = unwords . words
 getKannadaTB :: IO KannadaTreebank
 getKannadaTB = do
     --let treebankPath = "treebank_small.xml"
-    let treebankPath = "../data/TREE 1-4150 (3.8 (1).15 CORRECTED)"
+    let treebankPath = "../data/datasources/TREE 1-4150 (3.8 (1).15 CORRECTED)"
     dirtyTreebankFile <- readFile treebankPath
     
     -- This whole file is a dirty desaster on pretty much every level.
@@ -93,6 +93,7 @@ parseSentence (i, alllines)
                    [drelname, drelhead] = splitOn ":"
                                         $ fromMaybe "ROOT:"
                                         $ lookup "drel" attrs
+                   -- TODO: clean drelname: consolidate rsym_eos with _/- and case
                    fs = ChunkFeatureSet maybeaddress drelname drelhead
                    newChunk = KannadaChunk (trim chunktag) fs []
                in chunkReader (newChunk : chunksSoFar) remlines
@@ -178,5 +179,5 @@ fromJust' (Just x) = x
 main = do
     parsedSentences <- getKannadaTB
     let coNLLTB = transformKannadaTBToCoNLL parsedSentences
-        kannadaOpts = stdCoNLLExportOptions{getOutputPrefix = "../data/Kannada"}
+        kannadaOpts = stdCoNLLExportOptions{getOutputPrefix = "../data/Kannada/sentences/"}
     generateTrainAndTestFiles kannadaOpts coNLLTB

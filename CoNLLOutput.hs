@@ -7,13 +7,16 @@ module CoNLLOutput
 , CoNLLWord (..)
 ) where
 
+import Control.Monad (forM, forM_)
+import Data.Array.IO
 import Data.List (intercalate)
 import Data.List.Split (splitOn)
 import System.IO.Unsafe (unsafeInterleaveIO)
+import System.Random
 
 data CoNLLExportOptions = CoNLLExportOptions
     { getOutputPrefix :: FilePath -- ^ output prefix (full path, no extension)
-    , getNoOfSentences :: Maybe Int -- ^ number of sentences (to control memory!)
+    , getNoOfSentences :: Maybe Int -- ^ number of sentences (to control memory! - doesn't happen anymore, but we still use this)
     , getRootRelation :: String -- ^ name of the root relation
     , getVisibleFeats :: Bool -- ^ visiblity of lemma, coarse and full postag and features in train and test sets
     , getVisibleDep :: Bool -- ^ visiblity of dependency information in train and test sets
@@ -105,47 +108,55 @@ generateTrainAndTestFiles
   -> CoNLLTreebank
   -> IO ()
 generateTrainAndTestFiles opts coNLLTB = do
+    let nfolds = 5 -- also hardcoded in eval.sh
     let l = case getNoOfSentences opts of
               Nothing -> length coNLLTB
               Just l' -> l'
         splitPoint = 9 * (l `div` 10)
-        stringifyClean False = stringifyCoNLLTreebank opts False
-        stringifyClean True  = stringifyCoNLLTreebank opts True
-                             . map (\(i, ws) -> (i, map (cleanUnwantedFields opts) ws))
-        wTrain, wTest, wGold :: CoNLLTreebank -> IO ()
-        wTrain = writeFile (getOutputPrefix opts ++ "_train.conll")
-               . stringifyClean False
-        wTest  = writeFile (getOutputPrefix opts ++ "_test.conll")
-               . stringifyClean True
-        wGold  = writeFile (getOutputPrefix opts ++ "_gold.conll")
-               . stringifyClean False
     
-    firstPart <- performFunctionAfterServing splitPoint
-                                             (\ss -> wTest ss >> wGold ss)
-                                             coNLLTB
-    wTrain firstPart
+    -- The data in the treebank is of course not really uniformly distributed.
+    rndCoNLLTB <- shuffle coNLLTB
+    
+    let wFile name = writeFile (getOutputPrefix opts ++ name ++ ".conll")
+                   . stringifyCoNLLTreebank opts False
+    
+    wFile "full" rndCoNLLTB
+    
+    forM_ [1..nfolds] $ \part -> do
+        let (testset, trainset) = cutOutPart part nfolds rndCoNLLTB l
+            wF' n = wFile (n ++ show part)
+        wF' "test" testset
+        wF' "gold" testset
+        wF' "train" trainset
 
-splitAt' :: Int -> [a] -> ([a], [a])
-splitAt' 0 xs = ([], xs)
-splitAt' 1 (x:xs) = ([x], xs)
-splitAt' i (x:xs) = let (xs', xs'') = splitAt' (i - 1) xs
-                    in (x:xs', xs'')
+cutOutPart
+  :: Int -- ^ which part
+  -> Int -- ^ of how many
+  -> [a] -- ^ input list
+  -> Int -- ^ its length
+  -> ([a], [a]) -- ^ cutout, remains
+cutOutPart part total xs l
+  = let firstCut  = (part - 1) * l `div` total
+        secondCut =  part      * l `div` total
+        (remains1, tmp) = splitAt firstCut xs
+        (cutout, remains2) = splitAt secondCut tmp
+    in (cutout, remains1 ++ remains2)
 
--- | The problem is that I want to IO-crunch the first half of a list and then
--- crunch the second half with another function. Using splitAt seems to retain
--- some references to the very beginning of the list whily crunching it.
--- This is not necessary and causes huge memory consumption.
--- I'm not sure this convoluted unsafeInterleaveIO-powered solution is
--- necessary, but at least it works: the full list is being returned lazily and
--- once the splitpoint is reached the lazy computation instead feeds the whole
--- rest of the list to the given f2. It is still up to the user to feed the list
--- (the first half) that this function is essentially serving to f1, see above.
-performFunctionAfterServing
-  :: Int -- ^ splitpoint
-  -> ([a] -> IO ()) -- ^ f2
-  -> [a] -- ^ all data
-  -> IO [a] -- ^ rest for f1
-performFunctionAfterServing 0 f2 xs = f2 xs >> return []
-performFunctionAfterServing i f2 (x:xs) = do
-    xs' <- unsafeInterleaveIO $ performFunctionAfterServing (i-1) f2 xs
-    return (x:xs')
+-- | Randomly shuffle a list
+--   /O(N)/
+-- https://wiki.haskell.org/Random_shuffle
+-- made deterministic with setStdGen
+shuffle :: [a] -> IO [a]
+shuffle xs = do
+    setStdGen $ mkStdGen 42
+    ar <- newArray n xs
+    forM [1..n] $ \i -> do
+        j <- randomRIO (i,n)
+        vi <- readArray ar i
+        vj <- readArray ar j
+        writeArray ar j vi
+        return vj
+  where
+    n = length xs
+    newArray :: Int -> [a] -> IO (IOArray Int a)
+    newArray n xs =  newListArray (1,n) xs

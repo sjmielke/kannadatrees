@@ -14,13 +14,13 @@ main = do
     -- ^ This file list is literally the only thing that is continuously
     -- occupying memory during the program.
     coNLLTB <- sequence_lazy $ map (fmap ((,) Nothing) . fileCruncher) files
-    let hamburgOpts = stdCoNLLExportOptions{ getOutputPrefix = "../data/Hamburg"
+    let hamburgOpts = stdCoNLLExportOptions{ getOutputPrefix = "../data/Hamburg/sentences/"
                                            , getNoOfSentences = Just $ length files
                                            , getRootRelation = "S"
                                            }
     generateTrainAndTestFiles hamburgOpts coNLLTB
       where
-        hamburgTBPath = "../data/hamburg_dependency_treebank/part_A/"
+        hamburgTBPath = "../data/datasources/hamburg_dependency_treebank/part_A/"
         fileCruncher name = do 
             contents <- readFile (hamburgTBPath ++ name)
             return $! parseSentence $!! contents
