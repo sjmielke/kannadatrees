@@ -55,6 +55,14 @@ data WordFeatureSet = WordFeatureSet
 transformKannadaTBToCoNLL :: KannadaTreebank -> CoNLLTreebank
 transformKannadaTBToCoNLL ss = map transformSentence ss
 
+{-
+-- TODO for this: renormalize word indices
+glueChunksIn :: (String, KannadaSentence) -> (String, KannadaSentence)
+glueChunksIn (sid, chunks) = (sid, map glue chunks)
+  where
+    glue c@(KannadaChunk tag fs (w:ws)) = c{getWords = [w{getWord = intercalate "_" $ map getWord ws}]}
+-}
+
 transformSentence :: (String, KannadaSentence) -> (Maybe String, CoNLLSentence)
 transformSentence (sid, chunks)
   = (,) (Just sid)

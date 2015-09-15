@@ -17,10 +17,14 @@ do
 			cd ../data
 			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_train.conll -m learn $BONUSFLAG
 			java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -i $1_test.conll -o $1_parsed.conll -m parse
-			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_gold.conll -s $1_parsed.conll -v 0
 			cd ../code
 			;;
-		optitrain)
+		evaluate)
+			cd ../data
+			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_gold.conll -s $1_parsed.conll -v 0 $BONUSFLAG
+			cd ../code
+			;;
+		optifind)
 			cd ../MaltOptimizer-1.0.3
 			COMMONCMD="java -jar MaltOptimizer.jar"
 			COMMONFLAGS="-m /usr/share/java/maltparser/maltparser-1.8.1.jar -c ../data/$1_train.conll -v cv"
@@ -31,12 +35,11 @@ do
 			echo "REMEMBER TO COPY THE SPECIFIED FEATS FILE TO 'data/$1_FEATS.xml'!"
 			cd ../code
 			;;
-		optitest)
+		optitrain)
 			cd ../data
 			COMMONCMD="java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -c test -f $1_finalOptionsFile.xml -F $1_FEATS.xml"
 			$COMMONCMD -i $1_train.conll -m learn $BONUSFLAG
 			$COMMONCMD -i $1_test.conll -o $1_parsed.conll -m parse
-			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1_gold.conll -s $1_parsed.conll -v 0
 			cd ../code
 			;;
 		treeview)

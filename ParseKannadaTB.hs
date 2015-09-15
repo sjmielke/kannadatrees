@@ -1,6 +1,5 @@
 module ParseKannadaTB where
 
-import Text.HTML.TagSoup
 import Data.Foldable (foldl')
 import Data.List (intercalate, find)
 import Data.List.Split (splitOn, splitWhen)

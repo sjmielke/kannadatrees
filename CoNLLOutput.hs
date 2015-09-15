@@ -70,7 +70,7 @@ stringifyCoNLLTreebank opts clean ss = unlines $ map stringifyCoNLLSentence ss
             , pd
             ]
           where
-            showPos x = if x < 0 then "0" else show x -- TODO: Why am I forced to give a valid head? This. doesn't make any sense.
+            showPos x = if x < 0 then "0" else show x -- TODO: Why am I forced to give a valid head? This doesn't make any sense.
             encodeEmpty "" = "_"
             encodeEmpty s = s
             rootify ""
