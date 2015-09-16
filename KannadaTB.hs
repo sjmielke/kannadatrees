@@ -53,7 +53,7 @@ data WordFeatureSet = WordFeatureSet
     deriving (Eq, Show)
 
 transformKannadaTBToCoNLL :: KannadaTreebank -> CoNLLTreebank
-transformKannadaTBToCoNLL ss = map transformSentence ss
+transformKannadaTBToCoNLL ss = map coNLLifySentence ss
 
 {-
 -- TODO for this: renormalize word indices
@@ -63,8 +63,8 @@ glueChunksIn (sid, chunks) = (sid, map glue chunks)
     glue c@(KannadaChunk tag fs (w:ws)) = c{getWords = [w{getWord = intercalate "_" $ map getWord ws}]}
 -}
 
-transformSentence :: (String, KannadaSentence) -> (Maybe String, CoNLLSentence)
-transformSentence (sid, chunks)
+coNLLifySentence :: (String, KannadaSentence) -> (Maybe String, CoNLLSentence)
+coNLLifySentence (sid, chunks)
   = (,) (Just sid)
   $ uncurry shiftAddressesBack -- since filterNull has left some "holes"
   $ filterNull []
@@ -86,27 +86,36 @@ transformSentence (sid, chunks)
                       fulltag
                       (intercalate "|" $ map (uncurry (++))
                                        $ filter (not . null . snd)
-                                       $ zip (zipWith (:) ['a'..] $ repeat "=") fs) -- TODO: choose proper names
+                                       $ zip afKeys fs)
                       (fromJust . findIdForAddress chunks $ getDRelHead chunkfs)
                       (getDRel chunkfs)
                       (-1)
                       ""
             where
+              afNames = ["root", "category", "gender", "number", "pers", "case"]
+              afKeys = map (++"=") afNames
+              -- This might be deleted, as it should no longer have any effect:
+              -- (actually it makes checking for NULL in filterNull more
+              -- difficult, since now nodes no longer have exactly "NULL" as form!)
               enrichNULL "NULL" = chunkTag
               enrichNULL s = s
     
+    -- | Already adjusts the ids of words, but not the DepHeads
+    -- (that is what shiftAdressesBack is for)
     filterNull
       :: [Int] -- ^ word ids of NULL in old list
       -> [CoNLLWord] -- ^ old word list
       -> ([Int], [CoNLLWord]) -- ^ clean word list
     filterNull nulls [] = (nulls, [])
     filterNull nulls (cword@CoNLLWord{getId = oldid} : ws)
-      | False && getForm cword == "NULL" = filterNull (oldid : nulls) ws
+      | take 4 (getForm cword) == "NULL" = filterNull (oldid : nulls) ws
       | otherwise = let (indices, cleanRest) = filterNull nulls ws
                     in ( indices
                        , cword{getId = oldid - length nulls} : cleanRest
                        )
     
+    -- | This function updates only the DepHeads of words
+    -- after the ids have already been shifted in `filterNull`.
     shiftAddressesBack
       :: [Int] -- ^ word ids of NULL in old list
       -> [CoNLLWord] -- ^ word list with new indices but old drel addresses
@@ -114,17 +123,22 @@ transformSentence (sid, chunks)
     shiftAddressesBack nulls = map correct
       where
         correct cword@CoNLLWord{getHead = oldhead}
-          = cword{getHead = oldhead - length (dropWhile (>oldhead) nulls)}
+          = cword{getHead = oldhead - offsetAt oldhead}
+        offsetAt somehead = length (dropWhile (>somehead) nulls)
 
 -- If a chunk is the head of a dependency
 -- the *leftmost* word will play that role.
 findIdForAddress :: [KannadaChunk] -> String -> Maybe Int
+-- Empty head -> point to ROOT:
 findIdForAddress chunks "" = Just 0
--- Caution: instead of pointing to a "NULL" node, we point to the ROOT instead.
 findIdForAddress chunks a = do
   targetChunk <- find ((== (Just True)). fmap (== a) . getAddress . getChunkFS)
                $ chunks
-  return $ getWordId
-         $ head {- <- leftmost -}
-         $ getWords
-         $ targetChunk
+  case take 4 a of
+    -- Head is a null node? Use its head instead!
+    "NULL" -> findIdForAddress chunks $ getDRelHead . getChunkFS
+                                      $ targetChunk
+    _ -> return $ getWordId
+                $ head {- <- leftmost -}
+                $ getWords
+                $ targetChunk

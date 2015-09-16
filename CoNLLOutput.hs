@@ -115,6 +115,7 @@ generateTrainAndTestFiles opts coNLLTB = do
         splitPoint = 9 * (l `div` 10)
     
     -- The data in the treebank is of course not really uniformly distributed.
+    -- let rndCoNLLTB = coNLLTB
     rndCoNLLTB <- shuffle coNLLTB
     
     let wFile name = writeFile (getOutputPrefix opts ++ name ++ ".conll")
