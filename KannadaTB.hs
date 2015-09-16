@@ -12,11 +12,8 @@ module KannadaTB
 , findIdForAddress
 ) where
 
-import Data.Char (isLatin1)
-import Data.Hashable
 import Data.List
 import Data.Maybe (fromJust)
-import Control.Exception.Base (assert)
 
 import CoNLLOutput
 
@@ -80,25 +77,43 @@ coNLLifySentence (sid, chunks)
                       (KannadaWord i form fulltag
                                    (WordFeatureSet lemma coarsetag fs))
           = CoNLLWord i
-                      (enrichNULL form)
-                      (enrichNULL lemma)
+                      form
+                      lemma
                       coarsetag
                       fulltag
                       (intercalate "|" $ map (uncurry (++))
                                        $ filter (not . null . snd)
                                        $ zip afKeys fs)
-                      (fromJust . findIdForAddress chunks $ getDRelHead chunkfs)
-                      (getDRel chunkfs)
+                      (fst finalHeadChunk)
+                      (snd finalHeadChunk)
                       (-1)
                       ""
             where
               afNames = ["root", "category", "gender", "number", "pers", "case"]
               afKeys = map (++"=") afNames
-              -- This might be deleted, as it should no longer have any effect:
-              -- (actually it makes checking for NULL in filterNull more
-              -- difficult, since now nodes no longer have exactly "NULL" as form!)
-              enrichNULL "NULL" = chunkTag
-              enrichNULL s = s
+              -- Since we want to squash NULL nodes / follow them to the top,
+              -- getting the id of the head and the (possibly multiple)
+              -- deprel names is not exactly trivial:
+              finalHeadChunk = findHeadChunk [] chunkfs
+              findHeadChunk
+                :: [String] -- ^ so far accumulated deprelnames (top-to-bottom)
+                -> ChunkFeatureSet -- ^ fs of the chunk whose head we are searching
+                -> (Int, String) -- ^ id and somehow joined deprelnames
+              findHeadChunk names cfs
+                -- we're pointing to a NULL node
+                | take 4 headAddress == "NULL"
+                    = findHeadChunk (relName : names) (getChunkFS headChunk)
+                -- we're finally pointing to a usable head
+                | otherwise = ( fromJust $ findIdForAddress chunks headAddress
+                              , joiner $ relName : names
+                              )
+                where
+                  headAddress = getDRelHead cfs
+                  relName = getDRel cfs
+                  headChunk = fromJust $ findChunkForAddress headAddress chunks
+                  -- joiner = intercalate "/"
+                  joiner = head -- This seems to actually yield better results.
+                  -- TODO: Maybe try again after one optimization session.
     
     -- | Already adjusts the ids of words, but not the DepHeads
     -- (that is what shiftAdressesBack is for)
@@ -130,15 +145,17 @@ coNLLifySentence (sid, chunks)
 -- the *leftmost* word will play that role.
 findIdForAddress :: [KannadaChunk] -> String -> Maybe Int
 -- Empty head -> point to ROOT:
-findIdForAddress chunks "" = Just 0
+findIdForAddress _ "" = Just 0
 findIdForAddress chunks a = do
-  targetChunk <- find ((== (Just True)). fmap (== a) . getAddress . getChunkFS)
-               $ chunks
-  case take 4 a of
-    -- Head is a null node? Use its head instead!
-    "NULL" -> findIdForAddress chunks $ getDRelHead . getChunkFS
-                                      $ targetChunk
-    _ -> return $ getWordId
-                $ head {- <- leftmost -}
-                $ getWords
-                $ targetChunk
+  targetChunk <- findChunkForAddress a chunks
+  return $ getWordId
+         $ head {- <- leftmost -}
+         $ getWords
+         $ targetChunk
+
+findChunkForAddress :: String -> [KannadaChunk] -> Maybe KannadaChunk
+findChunkForAddress a = find ( (== (Just True))
+                             . fmap (== a)
+                             . getAddress
+                             . getChunkFS
+                             )

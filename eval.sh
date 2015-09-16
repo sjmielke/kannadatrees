@@ -3,7 +3,7 @@
 # Immediately exit if something fails.
 set -e
 
-MEM="-Xmx2400m"
+MEM="-Xmx2200m"
 
 for arg in "$@"
 do
@@ -22,7 +22,10 @@ do
 			cd ../MaltOptimizer-1.0.3
 			COMMONCMD="java -jar MaltOptimizer.jar"
 			# The python-aliasing is just for me, use at your own discretion.
-			mkdir /tmp/bin; ln -s /usr/bin/python2 /tmp/bin/python; export PATH=/tmp/bin:$PATH
+			if [ ! -d /tmp/bin ]; then
+				mkdir /tmp/bin; ln -s /usr/bin/python2 /tmp/bin/python
+			fi
+			export PATH=/tmp/bin:$PATH
 			COMMONFLAGS="-m /usr/share/java/maltparser/maltparser-1.8.1.jar -c ../data/$1/sentences/full.conll -v cv"
 			$COMMONCMD -p 1 $COMMONFLAGS &&
 			$COMMONCMD -p 2 $COMMONFLAGS &&

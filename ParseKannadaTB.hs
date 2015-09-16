@@ -1,5 +1,6 @@
 module ParseKannadaTB where
 
+import Data.Char (toLower)
 import Data.Foldable (foldl')
 import Data.List (intercalate, find)
 import Data.List.Split (splitOn, splitWhen)
@@ -93,8 +94,12 @@ parseSentence (i, alllines)
                    [drelname, drelhead] = splitOn ":"
                                         $ fromMaybe "ROOT:"
                                         $ lookup "drel" attrs
-                   -- TODO: clean drelname: consolidate rsym_eos with _/- and case
-                   fs = ChunkFeatureSet maybeaddress drelname drelhead
+                   -- Because the variations rsym_eos, rsym-eos, RSYM_EOS, RSYM-EOS exist:
+                   canonify relname
+                     | map toLower relname `elem` ["rsym_eos", "rsym-eos"]
+                         = "rsym-eos" -- I now consider this canonic.
+                     | otherwise = relname
+                   fs = ChunkFeatureSet maybeaddress (canonify drelname) drelhead
                    newChunk = KannadaChunk (trim chunktag) fs []
                in chunkReader (newChunk : chunksSoFar) remlines
           _ : form : finetag : [wordfs]
@@ -146,12 +151,18 @@ checkSentence (sid, cs) = fmap ((,) sid)
                         $ mapM (checkChunkFS >=> checkAddress) >=> mapM (checkCyclity [])
                         $ cs
   where
-    checkChunkFS c@(KannadaChunk{getChunkFS = fs})
-      | fs == (ChunkFeatureSet Nothing "ROOT" "") = sentenceError sid $ "Chunk without fs"
+    isNullish = (=="NULL") . take 4
+    checkChunkFS c@(KannadaChunk{getChunkFS = fs, getWords = ws})
+      | getAddress fs == Nothing
+          = sentenceError sid $ "Chunk without named fs"
+      | not (isNullish $ fromJust $ getAddress fs) && any isNullish (map getWord ws)
+          = sentenceError sid $ "Chunk " ++ fromJust (getAddress fs) ++ " contains NULL word"
       | otherwise = Right c
+    
     checkAddress c@(KannadaChunk{getChunkFS = ChunkFeatureSet{getDRelHead = a}})
       | null a || findIdForAddress cs a /= Nothing = Right c
       | otherwise = sentenceError sid $ "Invalid Address: " ++ a
+    
     -- | Right now this is not very efficient. Might be worth implementing more cleverly.
     checkCyclity fringe c@(KannadaChunk{getChunkFS = ChunkFeatureSet{getDRelHead = a}})
       = do let nextAddress = fromJust $ findIdForAddress cs a -- checkAdress allows fromJust
