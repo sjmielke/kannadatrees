@@ -111,8 +111,8 @@ coNLLifySentence (sid, chunks)
                   headAddress = getDRelHead cfs
                   relName = getDRel cfs
                   headChunk = fromJust $ findChunkForAddress headAddress chunks
-                  -- joiner = intercalate "/"
-                  joiner = head -- This seems to actually yield better results.
+                  joiner = intercalate "/"
+                  --joiner = head -- This seems to actually yield better results.
                   -- TODO: Maybe try again after one optimization session.
     
     -- | Already adjusts the ids of words, but not the DepHeads

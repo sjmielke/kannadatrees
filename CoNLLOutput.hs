@@ -7,12 +7,15 @@ module CoNLLOutput
 , CoNLLWord (..)
 ) where
 
+import Control.Exception.Base (assert)
 import Control.Monad (forM, forM_)
 import Data.Array.IO
 import Data.List (intercalate)
 import Data.List.Split (splitOn)
 import System.IO.Unsafe (unsafeInterleaveIO)
 import System.Random
+
+import Debug.Trace
 
 data CoNLLExportOptions = CoNLLExportOptions
     { getOutputPrefix :: FilePath -- ^ output prefix (full path, no extension)
@@ -137,8 +140,8 @@ cutOutPart
   -> Int -- ^ its length
   -> ([a], [a]) -- ^ cutout, remains
 cutOutPart part total xs l
-  = let firstCut  = (part - 1) * l `div` total
-        secondCut =  part      * l `div` total
+  = let firstCut = (part - 1) * l `div` total
+        secondCut = l `div` total
         (remains1, tmp) = splitAt firstCut xs
         (cutout, remains2) = splitAt secondCut tmp
     in (cutout, remains1 ++ remains2)

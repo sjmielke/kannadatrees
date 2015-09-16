@@ -15,18 +15,27 @@ import CoNLLOutput
 
 trim = unwords . words
 
-getKannadaTB :: IO KannadaTreebank
-getKannadaTB = do
-    --let treebankPath = "treebank_small.xml"
-    let treebankPath = "../data/datasources/TREE 1-4150 (3.8 (1).15 CORRECTED)"
-    dirtyTreebankFile <- readFile treebankPath
+init' :: [a] -> [a]
+init' [] = error "OOOOHinit"
+init' xs = init xs
+
+last' :: [a] -> a
+last' [] = error "OOOOHlast"
+last' xs = last xs
+
+getKannadaTB :: Int -> IO KannadaTreebank
+getKannadaTB i = do
+    let treebankBasePath = "../data/datasources/kannada_new/"
+        files = ["till 7400 sep 10", "TREE 1-3500", "TREE 12451 TO 16655", "TREE  ALL   SEP  10"]
+    
+    dirtyTreebankFile <- readFile $ treebankBasePath ++ (files !! i)
     
     -- This whole file is a dirty desaster on pretty much every level.
     -- Some cleaning is necessary before it touches any meaningful code.
     let replace old new = intercalate new . splitOn old
     let cleanTreebankFile = replace "<fs\t<fs" "\t<fs"
-                          $ replace "' dmrel='" "' drel='"
                           $ replace " JJ<fs\taf='" "\tJJ\t<fs af='"
+                          $ replace "ಸೋಜಿಗ\t\tN__NN " "ಸೋಜಿಗ\tN__NN\t"
                           $ replace "Axa'\t\n" "Axa'>\n"
                           $ replace "<fs af=' ಬರು,v,,sg,3" "<fs af='ಬರು,v,,sg,3"
                           $ replace "<fs af=' ಎಷ್ಟು,adj,,,,o" "<fs af='ಎಷ್ಟು,adj,,,,o"
@@ -36,6 +45,8 @@ getKannadaTB = do
                           $ replace "'\n" "'>\n"
                           $ replace "> \n" ">\n"
                           $ replace ">\t\n" ">\n"
+                          $ replace "<document id=\"\">\n<head>\n\n</head>\n<Sentence" "\n<Sentence"
+                          $ replace "\n \n" "\n\n"
                           $ dirtyTreebankFile
     
     let allSentences :: [(String, [String])]
@@ -51,15 +62,13 @@ getKannadaTB = do
     let clusterfuckFreeSentences = id --takeWhile (\(i,_) -> i /= "513")
                                  -- Contain null super-chunk
                                  $ filter ((/='0') . head . head . snd)
-                                 -- Empty non-root deprel
-                                 $ filter (not . (`elem` ["1189"]) . fst)
+                                 -- Things are very wrong here
+                                 $ filter (not . (`elem` ["14", "423", "457", "1189", "4351", "6709", "14050", "14577"]) . fst)
                                  -- All A-sentences Are Bastards. Apparently.
-                                 $ filter ((/='A') . last . fst)
-                                 -- Strange big fs's in the original fs's.
-                                 $ filter (not . (`elem` ["423", "457"]) . fst)
+                                 $ filter ((/='A') . last' . fst)
                                  $ allSentences
     
-    let lookatit x ss = case x of Right s -> (s:ss); Left e -> trace e ss
+    let lookatit x ss = case x of Right s -> (s:ss); Left e -> ss -- trace e ss
     let fineSentenceParses = foldr lookatit []
                            $ map (parseSentence >=> checkSentence)
                            $ clusterfuckFreeSentences
@@ -91,17 +100,21 @@ parseSentence (i, alllines)
                            then []
                            else getAttrsForTag "fs" chunkfs
                    maybeaddress = lookup "name" attrs
-                   [drelname, drelhead] = splitOn ":"
-                                        $ fromMaybe "ROOT:"
-                                        $ lookup "drel" attrs
                    -- Because the variations rsym_eos, rsym-eos, RSYM_EOS, RSYM-EOS exist:
                    canonify relname
                      | map toLower relname `elem` ["rsym_eos", "rsym-eos"]
                          = "rsym-eos" -- I now consider this canonic.
                      | otherwise = relname
-                   fs = ChunkFeatureSet maybeaddress (canonify drelname) drelhead
-                   newChunk = KannadaChunk (trim chunktag) fs []
-               in chunkReader (newChunk : chunksSoFar) remlines
+                   drelspec = splitOn ":"
+                            $ fromMaybe "ROOT:"
+                            $ lookup "drel" attrs
+               in case drelspec of
+                    [drelname, drelhead]
+                       -> let fs = ChunkFeatureSet maybeaddress (canonify drelname) drelhead
+                              newChunk = KannadaChunk (trim chunktag) fs []
+                          in chunkReader (newChunk : chunksSoFar) remlines
+                    ss -> return $ sentenceError i $ "Malformed drel pieces: " ++ show ss
+               
           _ : form : finetag : [wordfs]
             -> do wordid <- get
                   put (wordid + 1)
@@ -129,12 +142,17 @@ parseSentence (i, alllines)
 sentenceError :: String -> String -> Either String a
 sentenceError i s = Left $ "Sentence " ++ i ++ ": " ++ s
 
+ensure2 :: Show a => String -> [a] -> [a]
+ensure2 _ [x, y] = [x, y]
+ensure2 msg xs = error $ "Not just 2 elements: " ++ msg
+
 -- We can't use TagSoup or something proper, because the file doesn't even care
 -- about basic SGML conformity.
 getAttrsForTag :: String -> String -> [(String, String)]
+getAttrsForTag name "" = error $ "Expected tag " ++ name ++ " was empty"
 getAttrsForTag name tag
   = assert (take (1 + length name) tag == "<" ++ name && last tag == '>')
-  $ map ((\[k, v] -> (k, unquote v)) . splitOn "=")
+  $ map ((\[k, v] -> (k, unquote v)) . ensure2 tag . splitOn "=")
   $ words
   $ drop (2 + length name) . init
   $ tag
@@ -188,7 +206,7 @@ fromJust' (Just x) = x
 
 
 main = do
-    parsedSentences <- getKannadaTB
+    parsedSentences <- fmap concat $ mapM getKannadaTB [0..3]
     let coNLLTB = transformKannadaTBToCoNLL parsedSentences
         kannadaOpts = stdCoNLLExportOptions{getOutputPrefix = "../data/Kannada/sentences/"}
     generateTrainAndTestFiles kannadaOpts coNLLTB
