@@ -10,9 +10,9 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 import CoNLLOutput
 
 main = do
-    files <- fmap (take 3000 . drop 2) $ getDirectoryContents hamburgTBPath -- skip "." and ".."
+    files <- fmap (take 5000 . drop 2) $ getDirectoryContents hamburgTBPath -- skip "." and ".."
     -- ^ This file list is literally the only thing that is continuously
-    -- occupying memory during the program.
+    -- occupying memory during the program. -- EDIT: not true anymore after the randomizing in the CoNLLOutput
     coNLLTB <- sequence_lazy $ map (fmap ((,) Nothing) . fileCruncher) files
     let hamburgOpts = stdCoNLLExportOptions{ getOutputPrefix = "../data/Hamburg/sentences/"
                                            , getNoOfSentences = Just $ length files

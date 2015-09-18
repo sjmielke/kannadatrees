@@ -76,7 +76,7 @@ stringifyCoNLLTreebank opts clean ss = unlines $ map stringifyCoNLLSentence ss
             , pd
             ]
           where
-            showPos x = if x < 0 then "0" else show x -- TODO: Why am I forced to give a valid head? This doesn't make any sense.
+            showPos x = if x < 0 then "0" else show x -- we're forced to give a valid head
             encodeEmpty "" = "_"
             encodeEmpty s = s
             rootify ""
@@ -115,11 +115,11 @@ generateTrainAndTestFiles opts coNLLTB = do
     let l = case getNoOfSentences opts of
               Nothing -> length coNLLTB
               Just l' -> l'
-        splitPoint = 9 * (l `div` 10)
     
     -- The data in the treebank is of course not really uniformly distributed.
     -- let rndCoNLLTB = coNLLTB
-    rndCoNLLTB <- shuffle coNLLTB
+    -- Also, we only take as many elements as specified (to control training set size)
+    rndCoNLLTB <- fmap (take l) $ shuffle coNLLTB
     
     let wFile name = writeFile (getOutputPrefix opts ++ name ++ ".conll")
                    . stringifyCoNLLTreebank opts False

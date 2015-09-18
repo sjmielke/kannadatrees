@@ -3,7 +3,7 @@
 # Immediately exit if something fails.
 set -e
 
-MEM="-Xmx2200m"
+MEM="-Xmx2400m"
 
 for arg in "$@"
 do
@@ -15,7 +15,10 @@ do
 			;;
 		evaluate)
 			cd ../data
-			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar -g $1/sentences/gold*.conll -s $1/sentences/parsed*.conll -v 0 $BONUSFLAG
+			java $MEM -jar ../malteval-dist-20141005/lib/MaltEval.jar \
+				-g $1/sentences/gold*.conll \
+				-s $1/sentences/parsed*.conll \
+				-v 0 $BONUSFLAG
 			cd ../code
 			;;
 		optimize)
@@ -26,7 +29,8 @@ do
 				mkdir /tmp/bin; ln -s /usr/bin/python2 /tmp/bin/python
 			fi
 			export PATH=/tmp/bin:$PATH
-			COMMONFLAGS="-m /usr/share/java/maltparser/maltparser-1.8.1.jar -c ../data/$1/sentences/full.conll -v cv"
+			COMMONFLAGS="-m /usr/share/java/maltparser/maltparser-1.8.1.jar \
+				-c ../data/$1/sentences/full.conll -v cv"
 			$COMMONCMD -p 1 $COMMONFLAGS &&
 			$COMMONCMD -p 2 $COMMONFLAGS &&
 			$COMMONCMD -p 3 $COMMONFLAGS
@@ -36,14 +40,17 @@ do
 			;;
 		train)
 			cd ../data
-			COMMONCMD="java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar -f $1/finalOptionsFile.xml -F $1/FEATS.xml"
+			COMMONCMD="java $MEM -jar /usr/share/java/maltparser/maltparser-1.8.1.jar \
+				-f $1/finalOptionsFile.xml -F $1/FEATS.xml"
 			for i in {1..5} # hardcoded in converter
 			do
 				echo;echo
 				echo "### Now training and testing fold $i"
 				echo
-				$COMMONCMD -i $1/sentences/train$i.conll -m learn $BONUSFLAG
-				$COMMONCMD -i $1/sentences/test$i.conll -o $1/sentences/parsed$i.conll -m parse
+				$COMMONCMD -i $1/sentences/train$i.conll \
+					-m learn $BONUSFLAG
+				$COMMONCMD -i $1/sentences/test$i.conll \
+					-m parse -o $1/sentences/parsed$i.conll
 			done
 			cd ../code
 			;;
@@ -56,7 +63,8 @@ do
 			# 
 			# boolean isok = true;
 			# try {
-			#     isok = usableFonts.get(j).canDisplayUpTo(treebank.getSentence(i).toString()) == -1;
+			#     isok = usableFonts.get(j)
+			#                .canDisplayUpTo(treebank.getSentence(i).toString()) == -1;
 			# } catch (ClassCastException e) {
 			#     System.out.println("Failing at " + usableFonts.get(j).toString());
 			#     isok = false;
@@ -65,7 +73,9 @@ do
 			#     usableFonts.remove(j);
 			#     j--;
 			# }
-			java se.vxu.msi.malteval.MaltEvalConsole -g ../../../data/$1/sentences/gold1.conll -s ../../../data/$1/sentences/parsed1.conll -v 1
+			java se.vxu.msi.malteval.MaltEvalConsole \
+				-g ../../../data/$1/sentences/gold1.conll \
+				-s ../../../data/$1/sentences/parsed1.conll -v 1
 			cd ../../../code
 			;;
 		Kannada|Hamburg)

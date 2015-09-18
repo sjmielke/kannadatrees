@@ -13,15 +13,10 @@ import Control.Exception.Base (assert)
 import KannadaTB
 import CoNLLOutput
 
+trim :: String -> String
 trim = unwords . words
-
-init' :: [a] -> [a]
-init' [] = error "OOOOHinit"
-init' xs = init xs
-
-last' :: [a] -> a
-last' [] = error "OOOOHlast"
-last' xs = last xs
+replace :: String -> String -> String -> String
+replace old new = intercalate new . splitOn old
 
 getKannadaTB :: Int -> IO KannadaTreebank
 getKannadaTB i = do
@@ -32,7 +27,6 @@ getKannadaTB i = do
     
     -- This whole file is a dirty desaster on pretty much every level.
     -- Some cleaning is necessary before it touches any meaningful code.
-    let replace old new = intercalate new . splitOn old
     let cleanTreebankFile = replace "<fs\t<fs" "\t<fs"
                           $ replace " JJ<fs\taf='" "\tJJ\t<fs af='"
                           $ replace "ಸೋಜಿಗ\t\tN__NN " "ಸೋಜಿಗ\tN__NN\t"
@@ -59,19 +53,19 @@ getKannadaTB i = do
           where
             getid = fromJust . lookup "id" . getAttrsForTag "Sentence" . trim
     
-    let clusterfuckFreeSentences = id --takeWhile (\(i,_) -> i /= "513")
-                                 -- Contain null super-chunk
-                                 $ filter ((/='0') . head . head . snd)
-                                 -- Things are very wrong here
-                                 $ filter (not . (`elem` ["14", "423", "457", "1189", "4351", "6709", "14050", "14577"]) . fst)
-                                 -- All A-sentences Are Bastards. Apparently.
-                                 $ filter ((/='A') . last' . fst)
-                                 $ allSentences
+    let considerableSentences = id --takeWhile (\(i,_) -> i /= "513")
+                              -- Contain null super-chunk
+                              $ filter ((/='0') . head . head . snd)
+                              -- Things are very wrong here
+                              $ filter (not . (`elem` ["14", "423", "457", "1189", "4351", "6709", "14050", "14577"]) . fst)
+                              -- All A-sentences Are Bastards. Apparently.
+                              $ filter ((/='A') . last . fst)
+                              $ allSentences
     
     let lookatit x ss = case x of Right s -> (s:ss); Left e -> ss -- trace e ss
     let fineSentenceParses = foldr lookatit []
                            $ map (parseSentence >=> checkSentence)
-                           $ clusterfuckFreeSentences
+                           $ considerableSentences
     
     length fineSentenceParses `seq` return ()
     
@@ -100,11 +94,15 @@ parseSentence (i, alllines)
                            then []
                            else getAttrsForTag "fs" chunkfs
                    maybeaddress = lookup "name" attrs
-                   -- Because the variations rsym_eos, rsym-eos, RSYM_EOS, RSYM-EOS exist:
-                   canonify relname
-                     | map toLower relname `elem` ["rsym_eos", "rsym-eos"]
-                         = "rsym-eos" -- I now consider this canonic.
-                     | otherwise = relname
+                   -- Because many relnames exist in the strangest variations:
+                   catchRsymEos s
+                     | take 4 s == "rsym" || take 3 (reverse s) == "soe"
+                         = "rsym_eos"
+                     | otherwise = s
+                   canonify = catchRsymEos
+                            . replace "__" "_"
+                            . replace "-" "_"
+                            . map toLower
                    drelspec = splitOn ":"
                             $ fromMaybe "ROOT:"
                             $ lookup "drel" attrs
@@ -194,19 +192,14 @@ checkSentence (sid, cs) = fmap ((,) sid)
                            Left e -> Left e
                            Right _ -> Right c
 
-{-
-Possible future assertions:
- * only one empty drel per sentence
- * what the hell is troot and mtype?
--}
-
-fromJust' :: Maybe a -> a
-fromJust' Nothing = error "AAAAH!"
-fromJust' (Just x) = x
-
-
 main = do
     parsedSentences <- fmap concat $ mapM getKannadaTB [0..3]
+    let maxlength = 12500
+        actuallength = length parsedSentences
+    putStrLn $ show actuallength ++ " sentences would be available, using " ++ show (min maxlength actuallength)
     let coNLLTB = transformKannadaTBToCoNLL parsedSentences
-        kannadaOpts = stdCoNLLExportOptions{getOutputPrefix = "../data/Kannada/sentences/"}
+        kannadaOpts = stdCoNLLExportOptions
+                        { getOutputPrefix = "../data/Kannada/sentences/"
+                        , getNoOfSentences = Just (min maxlength actuallength)
+                        }
     generateTrainAndTestFiles kannadaOpts coNLLTB
